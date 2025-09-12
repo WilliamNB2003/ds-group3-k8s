@@ -8,4 +8,4 @@ The project is P1: The leader election algorithm
 
 ## External ressources
 * **DRAW IO**: https://drive.google.com/file/d/1QkXqVuzHNkf_tdWcNkXJSN-7QzZdo-nb/view?usp=sharing
-* **LATEX**: https://ce2latex.site/project/68ba9713cac94c526e6f8eca
+* **LATEX**: https://ce2.dk/project/68ba9713cac94c526e6f8eca
