@@ -2,9 +2,9 @@ import socket
 import time
 import threading
 import select
-from queue import Queue
+from collections import deque
 
-NODE_PORT = 50000
+NODE_PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
 TIME_DELAY = 5
 TIMER_INTERVAL = 0.1
 message_identifier = ['OK', 'COORDINATOR', 'BOOTUP', 'ELECTION']
@@ -16,8 +16,9 @@ class Node(threading.Thread):
     is_leader: bool
     leader_id: int
     nodes: list[int]
-    has_recieved_okay: Queue[tuple[str, float, bool]]
+    has_recieved_okay: deque[tuple[str, float, bool]] = deque()
     last_ok: float
+    election_id_count: int
 
 
     def __init__ (self, node_id: int, nodes: list[int]):
@@ -27,7 +28,10 @@ class Node(threading.Thread):
         self.is_leader = False
         self.leader_id = -1
         self.nodes = nodes
+        self.election_id_count = 0
 
+        # Broadcast
+        self.bootup()
         # main loop
         self.run()
 
@@ -43,6 +47,10 @@ class Node(threading.Thread):
 
     def revive_node(self):
         self.is_alive = True
+    
+    def new_node(self, node_id):
+        self.nodes[-1] = node_id
+        
 
     def ping_leader(self) -> bool:
         try:
@@ -58,13 +66,15 @@ class Node(threading.Thread):
             print(f'error: {e}')
             return False
 
-    def election(self, sender = None):
-        self.has_recieved_okay = False
-        self.last_ok = time.time()
+    def election(self, sender = None, election_id = None):
+        election_id = self.election_id_count
+        self.election_id_count += 1
+
+        self.has_recieved_okay.append([election_id, time.time()+5, False])
 
         if (sender is not None):
             # send OK to sender of election
-            self.send_uni_cast(sender, 'OK')
+            self.send_uni_cast(sender, 'OK', self.node_id)
 
         # Collect the ID's higher than my own:
         election_candidates = []
@@ -79,7 +89,7 @@ class Node(threading.Thread):
 
         # If there are candidates call election on them
         for candidate in election_candidates:
-            self.send_uni_cast(candidate, 'ELECTION')
+            self.send_uni_cast(candidate, 'ELECTION', self.node_id)
 
         # wait is done in listen_for_msg
         # time.sleep(3)
@@ -91,13 +101,55 @@ class Node(threading.Thread):
     
     def check_queue(self):
         current_time = time.time()
+        if current_time > self.has_recieved_okay[0][1]:
+            rec_okay = self.has_recieved_okay.popleft()
+            if not rec_okay[2]:
+                self.broadcast_leader()
 
+            
+    # Listen for unicast messages
     def check_messages(self, server_socket):
+        """"When a message has come """
 
         print(f"Node {self.node_id} listening...")
     
         # wait for a new client to connect
-        client_conn, addr = server_socket.accept()  
+        client_conn, addr = server_socket.accept()
+        # recv from this client
+        data = client_conn.recv(512)
+
+        # Close the connection to the client
+        client_conn.close()
+
+        # Decode the data
+        decoded = data.decode(): int, 
+        messages = decoded.split('/')
+        for msg in messages:
+            code, leader_id, sender_node_id = msg.split("|", 2)
+            leader_id = int(leader_id)
+            sender_node_id = int(sender_node_id)
+            print(f"Message: {code}, Leader: {leader_id}, Sender: {sender_node_id}")
+
+            # Check of the message was OK
+            if code == "OK":
+                self.has_recieved_okay = True
+
+            # If it was a coordinantor message then update the leader I
+            elif code == "COORDINATOR":
+                self.leader_id = leader_id
+
+            elif code == "ELECTION":
+                self.election(sender_node_id)
+
+            if not self.has_recieved_okay and time.time() > self.last_ok + TIME_DELAY:
+                # current node is now leader
+                self.broadcast_leader()
+
+    # Listen for broadcast messages
+    def handle_broadcast(self, socket):
+        """"Handles broadcast messages like BOOTUP"""
+        print("handle broadcast message")
+        client_conn, addr = socket.accept()  
         # recv from this client
         data = client_conn.recv(512)
 
@@ -106,39 +158,48 @@ class Node(threading.Thread):
 
         # Decode the data
         decoded = data.decode()
-        msg, leader_id = decoded.split("|", 1)
-        leader_id = int(leader_id)
-        print(f"Message: {msg}, Leader: {leader_id}")
+        messages = decoded.split('/')
+        for msg in messages:
+            code, leader_id, sender_node_id = msg.split("|", 2)
+            if code == "BOOTUP":
+                leader_id = int(leader_id)
+                sender_node_id = int(sender_node_id)
+                self.new_node(sender_node_id)
+            if code == "COORDINATOR":
+                leader_id = int(leader_id)
+                sender_node_id = int(sender_node_id)
+                # new leader
+                self.leader_id = sender_node_id
+        print('handled broadcast messages')
 
-        # Check of the message was OK
-        if msg == "OK":
-            self.has_recieved_okay = True
 
-        # If it was a coordinantor message then update the leader I
-        elif msg == "COORDINATOR":
-            self.leader_id = leader_id
-
-        elif msg == "ELECTION":
-            
-
-        if not self.has_recieved_okay and time.time() > self.last_ok + TIME_DELAY:
-            # current node is now leader
-            self.broadcast_leader()
-        
 
     def run(self):
-        """Main class loop, keeps listening on port 50000 + node_id"""
+        """Main loop, keeps listening on port 50000 + node_id"""
 
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind(('localhost', NODE_PORT + self.node_id))
         server_socket.listen()
 
+        broadcast_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        broadcast_socket.bind(('localhost', 50000))
+        broadcast_socket.listen()
+        server_to_listen = [server_socket, broadcast_socket]
+
         while True:
-            if self.has_recieved_okay.empty():
-            ready, _, _ = select.select([server_socket], [], [], TIMER_INTERVAL)
+            if self.has_recieved_okay:
+                self.check_queue()
+
+            ready, _, _ = select.select(server_to_listen, [], [], TIMER_INTERVAL)
                 
             if ready:
-                self.check_queue(server_socket)
+                for sock in server_to_listen:
+                    client_conn, addr = sock.accept()
+                    if sock == server_socket:
+                        self.check_queue(server_socket)
+                    else:
+                        # broadcast message
+                        self.handle_broadcast(sock)
             else:
                 # now check for timers expired
                 pass
@@ -148,13 +209,16 @@ class Node(threading.Thread):
         print(f"node {self.node_id} is now leader")
 
 
-    def send_broadcast(self, msg: str):
+    def send_broadcast(self, msg: str, sender_node_id, leader = -1):
         assert msg in message_identifier, "message type should be in message_identifier"
-        for node in self.nodes:
-            self.send_uni_cast(node, msg)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect(('localhost', int(NODE_PORT)))
+            payload = f"/{msg}|{leader}|{sender_node_id}".encode()
+            s.sendall(payload)
+            # data_rec = s.recv(512) # Line to recieve data
 
 
-    def send_uni_cast(self, node_id: int, msg: str, leader = None):
+    def send_uni_cast(self, node_id: int, msg: str, sender_node_id, leader = None):
         """Generic function for sending messages to one node
 
         Args:
@@ -165,6 +229,6 @@ class Node(threading.Thread):
         
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect(('localhost', int(NODE_PORT + node_id)))
-            payload = f"{msg}|{leader}".encode()
+            payload = f"/{msg}|{leader}|{sender_node_id}".encode()
             s.sendall(payload)
             # data_rec = s.recv(512) # Line to recieve data

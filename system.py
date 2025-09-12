@@ -5,7 +5,7 @@ class System:
     test_cases: list
 
     def __init__(self, amount_nodes: int, test_cases: list[str]):
-        node_ids = list(range(0, amount_nodes))
+        node_ids = list(range(1, amount_nodes + 1))
         self.nodes = []
         for node_id in node_ids:
             node = Node(id, node_ids)
