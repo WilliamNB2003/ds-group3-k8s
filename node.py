@@ -1,10 +1,14 @@
-import time
+"""Node class acts as independent node
+
+    Returns:
+        _type_: _description_
+"""
 import threading
+import time
 from flask import Flask, request, jsonify
-from msg_class import Msg
 import requests
 
-BROADCAST_PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
+PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
 message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
 
 class Node(threading.Thread):
@@ -27,11 +31,17 @@ class Node(threading.Thread):
         self.app = Flask(__name__)
         self._setup_routes()
 
-        # Broadcast
-        self.bootup()
-        
-        # main loop
-        self.run()
+    def run(self):
+        """Thread entrypoint: start Flask server"""
+        port = PORT + self.node_id
+        # Start Flask server for this node
+        self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+    def start_node(self):
+        """Start Flask server in thread, then bootup after it's ready"""
+        self.start()            # starts the Flask server in background thread
+        time.sleep(0.2)           # give server time to bind to port
+        self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
         @self.app.route("/unicast", methods=["POST"])
@@ -40,47 +50,45 @@ class Node(threading.Thread):
             src = data.get("src")
             dst = data.get("dst")
             msg_type = data.get("type")
-            payload = data.get("payload")
+
+            if not self.is_node_alive:
+                return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "ELECTION":
                 self.election()
                 return jsonify({"status": "OK"}), 200
             elif msg_type == "PING":
-                if (self.is_node_alive):
-                    return jsonify({"status": "Alive"}), 200
-                else:
-                    return jsonify({"status": "Not alive"}), 500
+                return jsonify({"status": "Alive"}), 200
             else:
                 # Message not recognized
                 return jsonify({"status": "Bad request"}), 400
-        
+
         @self.app.route("/broadcast", methods=["POST"])
         def broadcast():
             data = request.get_json()
-            
+  
             src = data.get("src")
             dst = data.get("dst")
             msg_type = data.get("type")
-            payload = data.get("payload")
+
+            if not self.is_node_alive:
+                print(f'this node is unalive {self.node_id}')
+                return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "COORDINATOR":
                 self.leader_id = int(src)
                 self.is_leader = False
+                print(f'New leader is {int(src)}, {self.node_id}')
                 return jsonify({"status": "Acknowledged"}), 200
 
             elif msg_type == "BOOTUP":
                 self.new_node(src)
-                if self.is_node_alive:
-                    return jsonify({"status": "BOOTUP_RESPONSE", "Current_leader": self.leader_id}), 200
-                else:
-                    return jsonify({"status": "Not alive"}), 500
+                return jsonify({"status": self.leader_id}), 200
             
-
             else:
                 # Message not recognized
                 return jsonify({"status": "Bad request"}), 400
-            
-        
+
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
@@ -96,14 +104,18 @@ class Node(threading.Thread):
         """
         self.is_node_alive = True
         self.bootup()
-    
+
     def ping_leader(self):
         """
             Check if leader is alive
         """
-        self.has_received_ping_reply = (True, time.time() + 3)
-        self.send_uni_cast(self.leader_id, "PING", "request")
-        
+        response = self.send_uni_cast(self.leader_id, "PING")
+        if response is None or not (response.status_code == 200):
+            self.nodes.pop()
+            self.election()
+            return
+        print('Leader is still alive: ', response.status_code)
+
     # ---------------------------------------------------
     # Methods called inside of node
     # ---------------------------------------------------
@@ -111,71 +123,86 @@ class Node(threading.Thread):
         """
             Broadcasts to all other nodes that this node exists, so they update their table
         """
-        self.send_broadcast('BOOTUP')
+        print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
+        responses = self.send_broadcast('BOOTUP')
+
+        # Update the leader ID for the booted up node
+        if len(responses) == 0:
+            self.election()
+
+        for response in responses:
+            data = response.json()
+            if response and response.status_code == 200:
+                self.leader_id = int(data["status"])
+                print(f'found my leader: {self.leader_id}')
+                break
+
+        if self.leader_id < self.node_id:
+            print(f'Me node {self.node_id} is running nnew election')
+            self.election()
+
         print(f'node {self.node_id} booted up..')
 
     def new_node(self, node_id):
         """
             Whenever a bootup is registered we check if a new node should be appended to the list
         """
-        if (not (node_id in self.nodes)):
+        if not node_id in self.nodes:
             self.nodes.append(node_id)
 
     def election(self):
         """
-            Host a election, whenever a leader is either down or there is a new candidate
+            Host an election, whenever a leader is either down or there is a new candidate
         """
-
+        print(f'Node {self.node_id} is starting new election')
         # Collect the ID's higher than my own:
-        election_candidates = []
-        for node in self.nodes:
-            if (node > self.node_id):
-                election_candidates.append(node)
-        
+        election_candidates = [node for node in self.nodes if (node > self.node_id)]
+        print(election_candidates, len(election_candidates) == 0)
         # Check if there are no candidates, elect self as leader if no candidates
-        if (len(election_candidates) == 0):
+        if len(election_candidates) == 0:
+            
+            print("Election candidates: ", election_candidates)
             self.send_broadcast('COORDINATOR')
+            self.leader_id = self.node_id
+            print(f"Leader is now {self.leader_id}")
             return
 
         # If there are candidates call election on them
-        ok_received = False
         for candidate in election_candidates:
-            ok_received = ok_received or self.send_uni_cast(candidate, 'ELECTION')
+            response = self.send_uni_cast(candidate, 'ELECTION')
+            print('send election to candidate ', candidate)
+            if (response is not None and response.status_code == 200):
+                print('there is higher')
+                return
+        # If no 'ok' from higher candidate, you are then leader
+        self.send_broadcast('COORDINATOR')
+        self.is_leader = True
+        self.leader_id = self.node_id
 
-        if (not ok_received):
-            self.send_broadcast('COORDINATOR')
+    def send_broadcast(self, msg: str) -> list[requests.Response]:
+        """
+            Sending a message to all nodes in the node list
+        """
+        # For every node, send an http request with msg
+        responses = []
+        for node in self.nodes:
+            if node == self.node_id:
+                continue
 
+            target_port = PORT + node
+            url = f'http://localhost:{target_port}/broadcast'
+            message = {"src": self.node_id, "dst": node, "type": msg}
 
-    def run(self):
-        """Main loop, keeps listening on port 50000 + node_id"""
+            try:
+                resp = requests.post(url, json=message, timeout=0.5)
+                responses.append(resp)
+            except ConnectionError:
+                print(f'Error occurred whilst sending broadcast to node {node}')
+                continue
+            # except Co
+        return responses
 
-        while True: 
-            if self.has_recieved_ok:
-                self.check_queue()
-                self.check_ping()
-
-            server_ready = select.select([server_socket], [], [], TIMER_INTERVAL)
-            broadcast_ready = select.select([broadcast_socket], [], [], TIMER_INTERVAL)
-
-            if server_ready:
-                self.check_queue(server_socket)
-            elif broadcast_ready:
-                self.handle_broadcast(broadcast_ready)
-            else:
-                # now check for timers expired
-                pass
-
-
-    def send_broadcast(self, msg_type: str, payload: str = ''):
-        assert msg_type in message_identifier, "message type should be in message_identifier"
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect(('localhost', int(BROADCAST_PORT)))
-            message = Msg(self.node_id, BROADCAST_PORT, msg_type, payload)
-            s.sendall(message.format())
-            # data_rec = s.recv(512) # Line to recieve data
-
-
-    def send_uni_cast(self, dst_node_id: int, msg_type: str, payload: str = ''):
+    def send_uni_cast(self, dst_node_id: int, msg_type: str):
         """Generic function for sending messages to one node
 
         Args:
@@ -183,24 +210,14 @@ class Node(threading.Thread):
             msg (str): message to send
         """
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
-        target_port = 50000 + int(dst_node_id)
+        target_port = PORT + int(dst_node_id)
         url = f'http://localhost:{target_port}/unicast'
 
-        message = {"src": self.node_id, "dst": dst_node_id, "type": msg_type, "payload": str(payload)}
-        
+        message = {"src": self.node_id, "dst": dst_node_id, "type": msg_type}
+
         try:
-            resp = requests.post(url, json=message, timeout=2.0)
-            resp.raise_for_status()
-            return True
-        except requests.Timeout:
-            print(f"Timeout when sending to node {dst_node_id}")
-            return False
-        except requests.ConnectionError:
-            print(f"Connection error when sending to node {dst_node_id}")
-            return False
-        except requests.HTTPError as e:
-            print(f"HTTP error when sending to node {dst_node_id}: {e}")
-            return False
+            return requests.post(url, json=message, timeout=0.5)
 
-
-        return True
+        except ConnectionError:
+            print(f'Error occurred whilst unicasting to node {dst_node_id}')
+            return None
