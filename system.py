@@ -70,7 +70,7 @@ if __name__ == '__main__':
     message_count = []
     system = System(2)
     time.sleep(0.4)
-    for i in range(20):
+    for i in range(19):
         system.clearCount()
         system.kill_node(i+2)
         system.node_to_ping_leader(1)
