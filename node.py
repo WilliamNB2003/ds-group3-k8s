@@ -5,8 +5,6 @@ from msg_class import Msg
 import requests
 
 BROADCAST_PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
-TIME_DELAY = 5
-TIMER_INTERVAL = 0.1
 message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
 
 class Node(threading.Thread):
@@ -16,9 +14,6 @@ class Node(threading.Thread):
     is_leader: bool
     leader_id: int
     nodes: list[int]
-    has_received_ping_reply: tuple[bool, float]
-    ongoing_election: bool
-    election_time_check: float
 
 
     def __init__ (self, node_id: int, nodes: list[int]):
@@ -28,8 +23,6 @@ class Node(threading.Thread):
         self.is_leader = False
         self.leader_id = -1
         self.nodes = nodes
-        self.has_received_ping_reply = (False, 0)
-        self.ongoing_election = False
 
         self.app = Flask(__name__)
         self._setup_routes()
@@ -51,20 +44,15 @@ class Node(threading.Thread):
 
             if msg_type == "ELECTION":
                 self.election()
+                return jsonify({"status": "OK"}), 200
             elif msg_type == "PING":
                 if (self.is_node_alive):
-                    return 200
+                    return jsonify({"status": "Alive"}), 200
                 else:
-                    return 500
-
-                if payload == "request" and self.is_node_alive:
-                    self.send_uni_cast(src, "PING", "reply")
-                elif payload == "reply":
-                    self.has_received_ping_reply = (True, time.time() + 3)
-                
-
-            # Example: return a JSON response
-            return jsonify({"status": "OK"}), 200
+                    return jsonify({"status": "Not alive"}), 500
+            else:
+                # Message not recognized
+                return jsonify({"status": "Bad request"}), 400
         
         @self.app.route("/broadcast", methods=["POST"])
         def broadcast():
@@ -76,19 +64,23 @@ class Node(threading.Thread):
             payload = data.get("payload")
 
             if msg_type == "COORDINATOR":
-                self.leader_id = int(payload)
-                self.is_leader = (self.leader_id == self.node_id)
+                self.leader_id = int(src)
+                self.is_leader = False
+                return jsonify({"status": "Acknowledged"}), 200
+
             elif msg_type == "BOOTUP":
                 self.new_node(src)
                 if self.is_node_alive:
                     return jsonify({"status": "BOOTUP_RESPONSE", "Current_leader": self.leader_id}), 200
+                else:
+                    return jsonify({"status": "Not alive"}), 500
             
 
-            # Example: return a JSON response
-            return jsonify({"status": "Success"}), 200
+            else:
+                # Message not recognized
+                return jsonify({"status": "Bad request"}), 400
             
         
-
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
