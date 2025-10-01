@@ -9,7 +9,7 @@ from flask import Flask, request, jsonify
 import requests
 
 PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
-message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
+message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING', 'WINNER']
 
 class Node(threading.Thread):
     """Node thread, listening when instantiated"""
@@ -18,7 +18,6 @@ class Node(threading.Thread):
     is_leader: bool
     leader_id: int
     nodes: list[int]
-    messages_count : int
 
 
     def __init__ (self, node_id: int, nodes: list[int]):
@@ -28,7 +27,6 @@ class Node(threading.Thread):
         self.is_leader = False
         self.leader_id = -1
         self.nodes = nodes
-        self.messages_count = 0
 
         self.app = Flask(__name__)
         self._setup_routes()
@@ -57,10 +55,13 @@ class Node(threading.Thread):
                 return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "ELECTION":
-                self.election()
+                # self.election()
                 return jsonify({"status": "OK"}), 200
             elif msg_type == "PING":
                 return jsonify({"status": "Alive"}), 200
+            elif msg_type == 'WINNER':
+                # self.send_broadcast('COORDINATOR', self)
+                return jsonify({"status": 'OK'}), 200
             else:
                 # Message not recognized
                 return jsonify({"status": "Bad request"}), 400
@@ -78,7 +79,10 @@ class Node(threading.Thread):
                 return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "COORDINATOR":
-                self.leader_id = int(src)
+                new_leader = data.get('leader_id')
+                if new_leader == -1:
+                    print(f'recieved new leader is -1, from node {src}')
+                self.leader_id = int(new_leader)
                 self.is_leader = False
                 print(f'New leader is {int(src)}, {self.node_id}')
                 return jsonify({"status": "Acknowledged"}), 200
@@ -162,26 +166,33 @@ class Node(threading.Thread):
         print(election_candidates, len(election_candidates) == 0)
         # Check if there are no candidates, elect self as leader if no candidates
         if len(election_candidates) == 0:
-            
             print("Election candidates: ", election_candidates)
-            self.send_broadcast('COORDINATOR')
+            self.send_broadcast('COORDINATOR', self.node_id)
             self.leader_id = self.node_id
             print(f"Leader is now {self.leader_id}")
             return
 
         # If there are candidates call election on them
+        highest_id = -1
         for candidate in election_candidates:
             response = self.send_uni_cast(candidate, 'ELECTION')
             print('send election to candidate ', candidate)
             if (response is not None and response.status_code == 200):
-                print('there is higher')
-                return
+                if highest_id < candidate:
+                    highest_id = candidate
+        
+        if highest_id > self.node_id:
+            # this candidate is now leader
+            
+            self.send_broadcast('COORDINATOR', highest_id)
+            return
+
         # If no 'ok' from higher candidate, you are then leader
-        self.send_broadcast('COORDINATOR')
+        self.send_broadcast('COORDINATOR', self.node_id)
         self.is_leader = True
         self.leader_id = self.node_id
 
-    def send_broadcast(self, msg: str) -> list[requests.Response]:
+    def send_broadcast(self, msg: str, new_leader = -2) -> list[requests.Response]:
         """
             Sending a message to all nodes in the node list
         """
@@ -193,7 +204,7 @@ class Node(threading.Thread):
 
             target_port = PORT + node
             url = f'http://localhost:{target_port}/broadcast'
-            message = {"src": self.node_id, "dst": node, "type": msg}
+            message = {"src": self.node_id, "dst": node, "type": msg, 'leader_id': new_leader}
 
             try:
                 resp = requests.post(url, json=message, timeout=0.5)
