@@ -34,16 +34,29 @@ class System:
         """
         pinging_node = self.nodes[node_id-1]
         pinging_node.ping_leader()
+        
+    def clearCount(self):
+        for node in self.nodes:
+            node.resetMessageCount()
 
     def getSystemSummary(self):
-        print("\n----------System symmary----------")
+        print("\n---------- System summary ----------")
         for node in self.nodes:
             if node.is_node_alive:
                 state = "alive."
             else:
                 state = "dead. "
             print(f"{node.node_id}: {state} Believed leader: {node.leader_id}")
+        
+        print(f"Total Message Count: {self.getSystemMessagesCount()}")
         print("----------------------------------")
+
+    def getSystemMessagesCount(self):
+        message_count = 0
+        for node in self.nodes:
+            message_count += node.messages_count
+        
+        return message_count
 
     def addNewNode(self):
         node_id = len(self.nodes) + 1
@@ -54,25 +67,45 @@ class System:
 
 
 if __name__ == '__main__':
-    system = System(18)
-    print('made nodes :)')
-    # while True:
-    system.getSystemSummary()
-    time.sleep(7)
-    system.kill_node(17)
-    system.kill_node(18)
-    system.kill_node(16)
-    system.kill_node(11)
-    time.sleep(1)
-    system.node_to_ping_leader(8)
-    system.getSystemSummary()
-    system.revive_node(18)
-    system.getSystemSummary()
-    system.revive_node(16)
-    system.getSystemSummary()
+    message_count = []
+    system = System(2)
+    time.sleep(0.4)
+    for i in range(20):
+        system.clearCount()
+        system.kill_node(i+2)
+        system.node_to_ping_leader(1)
+        message_count.append(system.getSystemMessagesCount())
+        system.getSystemSummary()
+        system.revive_node(i+2)
+        system.addNewNode()
+        time.sleep(1)
+        system.getSystemSummary()
+    print(message_count)
 
-    # Add new node
-    time.sleep(1)
-    system.addNewNode()
-    system.getSystemSummary()
+
+
+
+
+
+
+
+    # # while True:
+    # system.getSystemSummary()
+    # time.sleep(7)
+    # system.kill_node(17)
+    # system.kill_node(18)
+    # system.kill_node(16)
+    # system.kill_node(11)
+    # time.sleep(1)
+    # system.node_to_ping_leader(8)
+    # system.getSystemSummary()
+    # system.revive_node(18)
+    # system.getSystemSummary()
+    # system.revive_node(16)
+    # system.getSystemSummary()
+
+    # # Add new node
+    # time.sleep(1)
+    # system.addNewNode()
+    # system.getSystemSummary()
 

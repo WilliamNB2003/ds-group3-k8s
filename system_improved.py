@@ -36,7 +36,7 @@ class System:
         pinging_node.ping_leader()
 
     def getSystemSummary(self):
-        print("\n----------System symmary----------")
+        print("\n---------- System summary ----------")
         for node in self.nodes:
             if node.is_node_alive:
                 state = "alive."

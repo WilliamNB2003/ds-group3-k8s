@@ -152,6 +152,9 @@ class Node(threading.Thread):
         if not node_id in self.nodes:
             self.nodes.append(node_id)
 
+    def resetMessageCount(self):
+        self.messages_count = 0
+
     def election(self):
         """
             Host an election, whenever a leader is either down or there is a new candidate
@@ -188,6 +191,7 @@ class Node(threading.Thread):
         # For every node, send an http request with msg
         responses = []
         for node in self.nodes:
+            self.messages_count += 1
             if node == self.node_id:
                 continue
 
@@ -211,6 +215,9 @@ class Node(threading.Thread):
             node_id (int): node's index
             msg (str): message to send
         """
+
+        self.messages_count += 1
+
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
         target_port = PORT + int(dst_node_id)
         url = f'http://localhost:{target_port}/unicast'
