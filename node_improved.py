@@ -64,8 +64,6 @@ class Node(threading.Thread):
                 return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "ELECTION":
-                if self.election_lock.acquire(blocking=False):
-                    threading.Thread(target=self.election, daemon=True).start()
                 return jsonify({"status": "OK"}), 200
             elif msg_type == "PING":
                 return jsonify({"status": "Alive"}), 200
@@ -86,7 +84,10 @@ class Node(threading.Thread):
                 return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "COORDINATOR":
-                self.leader_id = int(src)
+                new_leader = data.get('leader_id')
+                # if new_leader == -1:
+                    # print(f'recieved new leader is -1, from node {src}')
+                self.leader_id = int(new_leader)
                 self.is_leader = False
                 # print(f'New leader is {int(src)}, {self.node_id}')
                 return jsonify({"status": "Acknowledged"}), 200
@@ -184,22 +185,23 @@ class Node(threading.Thread):
                 # print(f"Leader is now {self.leader_id}")
                 return
 
-            responses = []
-            # If there are candidates call election on them
+             # If there are candidates call election on them
+            highest_id = -1
             for candidate in election_candidates:
-                if self.node_id == 5:
-                    print("Send election")
                 response = self.send_uni_cast(candidate, 'ELECTION')
-                responses.append(response)
-            
-            for response in responses:
                 # print('send election to candidate ', candidate)
                 if (response is not None and response.status_code == 200):
-                    # print('there is higher')
-                    return
+                    if highest_id < candidate:
+                        highest_id = candidate
+            
+            if highest_id > self.node_id:
+                # this candidate is now leader
                 
+                self.send_broadcast('COORDINATOR', highest_id)
+                return
+
             # If no 'ok' from higher candidate, you are then leader
-            self.send_broadcast('COORDINATOR')
+            self.send_broadcast('COORDINATOR', self.node_id)
             self.is_leader = True
             self.leader_id = self.node_id
         finally:
@@ -212,10 +214,10 @@ class Node(threading.Thread):
         # For every node, send an http request with msg
         responses = []
         for node in self.nodes:
+            self.messages_count += 1
             if node == self.node_id:
                 continue
-            self.messages_count += 1
-            
+
             target_port = PORT + node
             url = f'http://127.0.0.1:{target_port}/broadcast'
             message = {"src": self.node_id, "dst": node, "type": msg}

@@ -1,4 +1,6 @@
-from node import Node
+from NodeImproved import Node
+# from node import Node
+
 import time
 
 class System:
@@ -54,6 +56,7 @@ class System:
     def getSystemMessagesCount(self):
         message_count = 0
         for node in self.nodes:
+            print(node.messages_count)
             message_count += node.messages_count
         
         return message_count
@@ -70,16 +73,16 @@ if __name__ == '__main__':
     message_count = []
     system = System(2)
     time.sleep(0.4)
-    for i in range(19):
+    for i in range(8):
         system.clearCount()
         system.kill_node(i+2)
         system.node_to_ping_leader(1)
+        time.sleep(0.3)
         message_count.append(system.getSystemMessagesCount())
-        system.getSystemSummary()
+        # system.getSystemSummary()
         system.revive_node(i+2)
         system.addNewNode()
-        time.sleep(1)
-        system.getSystemSummary()
+        time.sleep(0.3)
     print(message_count)
 
 

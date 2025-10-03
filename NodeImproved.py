@@ -29,6 +29,7 @@ class Node(threading.Thread):
         self.leader_id = -1
         self.nodes = nodes
         self.messages_count = 0
+        
 
         self.app = Flask(__name__)
         self._setup_routes()
@@ -42,7 +43,7 @@ class Node(threading.Thread):
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
         self.start()            # starts the Flask server in background thread
-        time.sleep(0.2)           # give server time to bind to port
+        time.sleep(1)           # give server time to bind to port
         self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
@@ -77,16 +78,16 @@ class Node(threading.Thread):
             msg_type = data.get("type")
 
             if not self.is_node_alive:
-                print(f'this node is unalive {self.node_id}')
+                # print(f'this node is unalive {self.node_id}')
                 return jsonify({"status": "Not alive"}), 500
 
             if msg_type == "COORDINATOR":
                 new_leader = data.get('leader_id')
-                if new_leader == -1:
-                    print(f'recieved new leader is -1, from node {src}')
+                # if new_leader == -1:
+                    # print(f'recieved new leader is -1, from node {src}')
                 self.leader_id = int(new_leader)
                 self.is_leader = False
-                print(f'New leader is {int(src)}, {self.node_id}')
+                # print(f'New leader is {int(src)}, {self.node_id}')
                 return jsonify({"status": "Acknowledged"}), 200
 
             elif msg_type == "BOOTUP":
@@ -122,7 +123,7 @@ class Node(threading.Thread):
             self.nodes.pop()
             self.election()
             return
-        print('Leader is still alive: ', response.status_code)
+        # print('Leader is still alive: ', response.status_code)
 
     # ---------------------------------------------------
     # Methods called inside of node
@@ -131,7 +132,7 @@ class Node(threading.Thread):
         """
             Broadcasts to all other nodes that this node exists, so they update their table
         """
-        print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
+        # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
         responses = self.send_broadcast('BOOTUP')
 
         # Update the leader ID for the booted up node
@@ -142,14 +143,14 @@ class Node(threading.Thread):
             data = response.json()
             if response and response.status_code == 200:
                 self.leader_id = int(data["status"])
-                print(f'found my leader: {self.leader_id}')
+                # print(f'found my leader: {self.leader_id}')
                 break
 
         if self.leader_id < self.node_id:
-            print(f'Me node {self.node_id} is running nnew election')
+            # print(f'Me node {self.node_id} is running nnew election')
             self.election()
 
-        print(f'node {self.node_id} booted up..')
+        # print(f'node {self.node_id} booted up..')
 
     def new_node(self, node_id):
         """
@@ -158,27 +159,30 @@ class Node(threading.Thread):
         if not node_id in self.nodes:
             self.nodes.append(node_id)
 
+    def resetMessageCount(self):
+        self.messages_count = 0
+
     def election(self):
         """
             Host an election, whenever a leader is either down or there is a new candidate
         """
-        print(f'Node {self.node_id} is starting new election')
+        # print(f'Node {self.node_id} is starting new election')
         # Collect the ID's higher than my own:
         election_candidates = [node for node in self.nodes if (node > self.node_id)]
-        print(election_candidates, len(election_candidates) == 0)
+        # print(election_candidates, len(election_candidates) == 0)
         # Check if there are no candidates, elect self as leader if no candidates
         if len(election_candidates) == 0:
-            print("Election candidates: ", election_candidates)
+            # print("Election candidates: ", election_candidates)
             self.send_broadcast('COORDINATOR', self.node_id)
             self.leader_id = self.node_id
-            print(f"Leader is now {self.leader_id}")
+            # print(f"Leader is now {self.leader_id}")
             return
 
         # If there are candidates call election on them
         highest_id = -1
         for candidate in election_candidates:
             response = self.send_uni_cast(candidate, 'ELECTION')
-            print('send election to candidate ', candidate)
+            # print('send election to candidate ', candidate)
             if (response is not None and response.status_code == 200):
                 if highest_id < candidate:
                     highest_id = candidate
@@ -213,7 +217,7 @@ class Node(threading.Thread):
                 resp = requests.post(url, json=message, timeout=0.5)
                 responses.append(resp)
             except ConnectionError:
-                print(f'Error occurred whilst sending broadcast to node {node}')
+                # print(f'Error occurred whilst sending broadcast to node {node}')
                 continue
             # except Co
         return responses
@@ -238,5 +242,5 @@ class Node(threading.Thread):
             return requests.post(url, json=message, timeout=0.5)
 
         except ConnectionError:
-            print(f'Error occurred whilst unicasting to node {dst_node_id}')
+            # print(f'Error occurred whilst unicasting to node {dst_node_id}')
             return None
