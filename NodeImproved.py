@@ -38,12 +38,17 @@ class Node(threading.Thread):
         """Thread entrypoint: start Flask server"""
         port = PORT + self.node_id
         # Start Flask server for this node
-        self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        try:
+            self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        except SystemExit:
+            port *= 20
+            self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
         self.start()            # starts the Flask server in background thread
-        time.sleep(1)           # give server time to bind to port
+        time.sleep(0.1)           # give server time to bind to port
         self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
@@ -55,6 +60,7 @@ class Node(threading.Thread):
 
         @self.app.route('/election', methods=["GET"])
         def election_end():
+
             return jsonify({"status": "OK"}), 200
 
         @self.app.route('/ping', methods=["GET"])
@@ -211,7 +217,7 @@ class Node(threading.Thread):
                     resp =  requests.get(url, json=message, timeout=0.5)
 
                 responses.append(resp)
-            except ConnectionError:
+            except requests.exceptions.ConnectionError:
                 # print(f'Error occurred whilst sending broadcast to node {node}')
                 continue
             # except Co
@@ -241,6 +247,7 @@ class Node(threading.Thread):
             else:
                 return requests.get(url, json=message, timeout=0.5)
 
-        except ConnectionError:
+        except requests.exceptions.ConnectionError:
             # print(f'Error occurred whilst unicasting to node {dst_node_id}')
             return None
+        # except requests.exceptions

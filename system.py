@@ -1,4 +1,4 @@
-#from NodeImproved import Node
+# from NodeImproved import Node
 from node import Node
 
 import time
@@ -77,12 +77,14 @@ if __name__ == '__main__':
         system.clearCount()
         system.kill_node(i+2)
         system.node_to_ping_leader(1)
-        time.sleep(2)
+        time.sleep(1)
         message_count.append(system.getSystemMessagesCount())
         # system.getSystemSummary()
         system.revive_node(i+2)
         system.addNewNode()
-        time.sleep(0.3)
+        time.sleep(2)
+        print('for loop done:', i)
+    print('done :)')
     print(message_count)
 
 

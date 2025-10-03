@@ -54,7 +54,7 @@ class System:
 
 
 if __name__ == '__main__':
-    system = System(18)
+    system = System(30)
     print('made nodes :)')
     # while True:
     system.getSystemSummary()

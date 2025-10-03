@@ -49,55 +49,49 @@ class Node(threading.Thread):
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
         self.start()            # starts the Flask server in background thread
-        time.sleep(1)           # give server time to bind to port
+        time.sleep(0.1)           # give server time to bind to port
         self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
-        @self.app.route("/unicast", methods=["POST"])
-        def unicast():
+        # Middleware to check if node is alive before handling any request
+        @self.app.before_request
+        def check_node_alive():
+            if not self.is_node_alive:
+                return jsonify({"status": "Not alive"}), 401
+
+        @self.app.route('/election', methods=["GET"])
+        def election_end():
+            if self.election_lock.acquire(blocking=False):
+                threading.Thread(target=self.election, daemon=True).start()
+            return jsonify({"status": "OK"}), 200
+
+        @self.app.route('/ping', methods=["GET"])
+        def ping_end():
+            return jsonify({"status": "Alive"}), 200
+        
+        @self.app.route('/winner', methods=["GET"])
+        def winner_end():
+            return jsonify({"status": "OK"}), 200
+        
+        @self.app.route('/bootup', methods=['POST'])
+        def bootup_end():
             data = request.get_json()
             src = data.get("src")
-            dst = data.get("dst")
-            msg_type = data.get("type")
 
-            if not self.is_node_alive:
-                return jsonify({"status": "Not alive"}), 500
-
-            if msg_type == "ELECTION":
-                if self.election_lock.acquire(blocking=False):
-                    threading.Thread(target=self.election, daemon=True).start()
-                return jsonify({"status": "OK"}), 200
-            elif msg_type == "PING":
-                return jsonify({"status": "Alive"}), 200
-            else:
-                # Message not recognized
-                return jsonify({"status": "Bad request"}), 400
-
-        @self.app.route("/broadcast", methods=["POST"])
-        def broadcast():
+            self.new_node(src)
+            return jsonify({"status": self.leader_id}), 200
+        
+        @self.app.route('/coordinator', methods=['PUT'])
+        def coordinator_end():
             data = request.get_json()
-  
-            src = data.get("src")
-            dst = data.get("dst")
-            msg_type = data.get("type")
-
-            if not self.is_node_alive:
-                # print(f'this node is unalive {self.node_id}')
-                return jsonify({"status": "Not alive"}), 500
-
-            if msg_type == "COORDINATOR":
-                self.leader_id = int(src)
-                self.is_leader = False
-                # print(f'New leader is {int(src)}, {self.node_id}')
-                return jsonify({"status": "Acknowledged"}), 200
-
-            elif msg_type == "BOOTUP":
-                self.new_node(src)
-                return jsonify({"status": self.leader_id}), 200
             
-            else:
-                # Message not recognized
-                return jsonify({"status": "Bad request"}), 400
+            new_leader = data.get('leader_id')
+            # if new_leader == -1:
+            # print(f'recieved new leader is -1, from node {src}')
+            self.leader_id = int(new_leader)
+            self.is_leader = False
+            # print(f'New leader is {int(src)}, {self.node_id}')
+            return jsonify({"status": "Acknowledged"}), 200
 
     # ---------------------------------------------------
     #  Methods called outside of node
@@ -205,25 +199,33 @@ class Node(threading.Thread):
         finally:
             self.election_lock.release()
 
-    def send_broadcast(self, msg: str) -> list[requests.Response]:
+    def send_broadcast(self, msg: str, new_leader = -2) -> list[requests.Response]:
         """
             Sending a message to all nodes in the node list
         """
         # For every node, send an http request with msg
         responses = []
         for node in self.nodes:
+            self.messages_count += 1
             if node == self.node_id:
                 continue
-            self.messages_count += 1
-            
+
             target_port = PORT + node
-            url = f'http://127.0.0.1:{target_port}/broadcast'
-            message = {"src": self.node_id, "dst": node, "type": msg}
+            url = f'http://localhost:{target_port}/{msg.lower()}'
+            message = {"src": self.node_id, "dst": node, "type": msg, 'leader_id': new_leader}
 
             try:
-                resp = requests.post(url, json=message, timeout=0.5)
+                # resp = requests.post(url, json=message, timeout=0.5)
+                resp = ''
+                if msg == 'COORDINATOR':
+                    resp =  requests.put(url, json=message, timeout=0.5)
+                elif msg == 'BOOTUP':
+                    resp =  requests.post(url, json=message, timeout=0.5)
+                else:
+                    resp =  requests.get(url, json=message, timeout=0.5)
+
                 responses.append(resp)
-            except ConnectionError:
+            except requests.exceptions.ConnectionError:
                 # print(f'Error occurred whilst sending broadcast to node {node}')
                 continue
             # except Co
@@ -236,18 +238,24 @@ class Node(threading.Thread):
             node_id (int): node's index
             msg (str): message to send
         """
-
+        
         self.messages_count += 1
 
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
         target_port = PORT + int(dst_node_id)
-        url = f'http://127.0.0.1:{target_port}/unicast'
+        url = f'http://localhost:{target_port}/{msg_type.lower()}'
 
         message = {"src": self.node_id, "dst": dst_node_id, "type": msg_type}
 
         try:
-            return requests.post(url, json=message, timeout=0.5)
+            if msg_type == 'COORDINATOR':
+                return requests.put(url, json=message, timeout=0.5)
+            elif msg_type == 'BOOTUP':
+                return requests.post(url, json=message, timeout=0.5)
+            else:
+                return requests.get(url, json=message, timeout=0.5)
 
-        except ConnectionError:
+        except requests.exceptions.ConnectionError:
             # print(f'Error occurred whilst unicasting to node {dst_node_id}')
             return None
+        # except requests.exceptions
