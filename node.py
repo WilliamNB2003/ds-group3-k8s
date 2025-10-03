@@ -7,7 +7,6 @@ import threading
 import time
 from flask import Flask, request, jsonify
 import requests
-import logging
 
 PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
 message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
@@ -44,7 +43,12 @@ class Node(threading.Thread):
         # self.app.logger.setLevel(logging.ERROR)
         # Start Flask server for this node
         
-        self.app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False, threaded=True)
+        try:
+            self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        except SystemExit:
+            # self.node_id += 1
+            port = PORT + self.node_id
+            self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
@@ -113,6 +117,7 @@ class Node(threading.Thread):
         """
             Check if leader is alive
         """
+        time.sleep(0.2)
         response = self.send_uni_cast(self.leader_id, "PING")
         if response is None or not (response.status_code == 200):
             self.nodes.pop()
@@ -199,7 +204,7 @@ class Node(threading.Thread):
         finally:
             self.election_lock.release()
 
-    def send_broadcast(self, msg: str, new_leader = -2) -> list[requests.Response]:
+    def send_broadcast(self, msg: str) -> list[requests.Response]:
         """
             Sending a message to all nodes in the node list
         """
@@ -212,12 +217,14 @@ class Node(threading.Thread):
 
             target_port = PORT + node
             url = f'http://localhost:{target_port}/{msg.lower()}'
-            message = {"src": self.node_id, "dst": node, "type": msg, 'leader_id': new_leader}
+            message = {"src": self.node_id, "dst": node, "type": msg}
 
             try:
                 # resp = requests.post(url, json=message, timeout=0.5)
                 resp = ''
                 if msg == 'COORDINATOR':
+                    # this endpoint retrives 
+                    message = {"src": self.node_id, "dst": node, "type": msg, 'leader_id': self.node_id}
                     resp =  requests.put(url, json=message, timeout=0.5)
                 elif msg == 'BOOTUP':
                     resp =  requests.post(url, json=message, timeout=0.5)
@@ -225,7 +232,7 @@ class Node(threading.Thread):
                     resp =  requests.get(url, json=message, timeout=0.5)
 
                 responses.append(resp)
-            except requests.exceptions.ConnectionError:
+            except ConnectionError:
                 # print(f'Error occurred whilst sending broadcast to node {node}')
                 continue
             # except Co
@@ -238,7 +245,6 @@ class Node(threading.Thread):
             node_id (int): node's index
             msg (str): message to send
         """
-        
         self.messages_count += 1
 
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
@@ -255,7 +261,7 @@ class Node(threading.Thread):
             else:
                 return requests.get(url, json=message, timeout=0.5)
 
-        except requests.exceptions.ConnectionError:
+        except ConnectionError:
             # print(f'Error occurred whilst unicasting to node {dst_node_id}')
             return None
         # except requests.exceptions
