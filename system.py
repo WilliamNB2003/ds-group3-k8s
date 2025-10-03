@@ -1,5 +1,5 @@
-from NodeImproved import Node
-# from node import Node
+#from NodeImproved import Node
+from node import Node
 
 import time
 
@@ -73,11 +73,11 @@ if __name__ == '__main__':
     message_count = []
     system = System(2)
     time.sleep(0.4)
-    for i in range(8):
+    for i in range(50):
         system.clearCount()
         system.kill_node(i+2)
         system.node_to_ping_leader(1)
-        time.sleep(0.3)
+        time.sleep(2)
         message_count.append(system.getSystemMessagesCount())
         # system.getSystemSummary()
         system.revive_node(i+2)
