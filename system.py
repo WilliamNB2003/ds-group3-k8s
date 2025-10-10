@@ -18,8 +18,11 @@ class System:
             my_node = Node(node_id, known_nodes)
             my_node.start_node()
             self.nodes.append(my_node)
-            known_nodes.append(node_id)
-            
+            while not my_node.has_found_port:
+                time.sleep(0.1)
+                print("not working")
+            known_nodes.append(my_node.node_id)
+
     def kill_node(self, node_id: int):
         node_to_kill = self.nodes[node_id-1]
         node_to_kill.kill_node()
@@ -79,7 +82,7 @@ if __name__ == '__main__':
         system.node_to_ping_leader(1)
         # time.sleep(1)
         message_count.append(system.getSystemMessagesCount())
-        # system.getSystemSummary()
+        system.getSystemSummary()
         system.revive_node(i+2)
         system.addNewNode()
         time.sleep(1)
