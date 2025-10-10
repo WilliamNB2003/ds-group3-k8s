@@ -18,7 +18,8 @@ class Node(threading.Thread):
     is_leader: bool
     leader_id: int
     nodes: list[int]
-    messages_count : int
+    messages_count: int
+    port: int
 
 
     def __init__ (self, node_id: int, nodes: list[int]):
@@ -29,6 +30,7 @@ class Node(threading.Thread):
         self.leader_id = -1
         self.nodes = nodes
         self.messages_count = 0
+        self.port = 0
         
 
         self.app = Flask(__name__)
@@ -36,17 +38,18 @@ class Node(threading.Thread):
 
     def run(self):
         """Thread entrypoint: start Flask server"""
-        port = PORT + self.node_id
+        temp_port = PORT + self.node_id
         # Start Flask server for this node
         while(True):
-            if port > 65000:
-                break
+            if temp_port > 65000:
+                raise Exception("No free port")
             else:
                 try:
-                    self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+                    self.app.run(host="0.0.0.0", port=temp_port, debug=False, use_reloader=False)
+                    self.port = temp_port
                     break
                 except SystemExit:
-                    port += 1
+                    temp_port += 1
 
 
     def start_node(self):
@@ -208,7 +211,7 @@ class Node(threading.Thread):
 
             target_port = PORT + node
             url = f'http://localhost:{target_port}/{msg.lower()}'
-            message = {"src": self.node_id, "dst": node, "type": msg, 'leader_id': new_leader}
+            message = {"src": self.port, "dst": node, "type": msg, 'leader_id': new_leader}
 
             try:
                 # resp = requests.post(url, json=message, timeout=0.5)
