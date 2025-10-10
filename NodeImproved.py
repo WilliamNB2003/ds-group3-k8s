@@ -8,7 +8,7 @@ import time
 from flask import Flask, request, jsonify
 import requests
 
-PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
+PORT = 30000 # Port 50000 is broadcast and 50001 is node 1 etc...
 message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING', 'WINNER']
 
 class Node(threading.Thread):
@@ -38,11 +38,15 @@ class Node(threading.Thread):
         """Thread entrypoint: start Flask server"""
         port = PORT + self.node_id
         # Start Flask server for this node
-        try:
-            self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
-        except SystemExit:
-            port *= 20
-            self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        while(True):
+            if port > 65000:
+                break
+            else:
+                try:
+                    self.app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+                    break
+                except SystemExit:
+                    port += 1
 
 
     def start_node(self):
