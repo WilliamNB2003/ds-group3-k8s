@@ -1,14 +1,18 @@
-"""Node class acts as independent node
+""" Composition node class, incompassing all functions not unique to the bully algorithm
 
     Returns:
         _type_: _description_
 """
 import threading
+import socket
+import time
+import os
+import signal
 from flask import Flask, request, jsonify
 import requests
-import socket
 
-PORT = 50000 # Port 30000 is broadcast and 30001 is node 1 etc...
+PORT = 50000
+
 message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
 
 class NodeComposition(threading.Thread):
@@ -32,6 +36,8 @@ class NodeComposition(threading.Thread):
         self.messages_count = 0
         self.election_lock = threading.Lock()
         self.has_found_port = False
+        self.server_process = None
+        self.shutdown_event = threading.Event()
 
         self.app = Flask(__name__)
         self._setup_routes()
@@ -40,6 +46,7 @@ class NodeComposition(threading.Thread):
         """Thread entrypoint: start Flask server"""
         temp_port = PORT + self.node_id
         # Start Flask server for this node
+
         while(True):
             if temp_port > 65000:
                 raise Exception("No free port")
@@ -51,18 +58,29 @@ class NodeComposition(threading.Thread):
                     print("found port")
                     self.node_id = temp_port
                     self.has_found_port = True
-                    self.app.run(host="127.0.0.1", port=temp_port, debug=True, use_reloader=False)
+                    # Run Flask server with threaded=True to handle concurrent requests
+                    self.app.run(host="127.0.0.1", port=temp_port, debug=False, use_reloader=False, threaded=True)
                     break
                 except Exception:
-                    print("noew port")
+                    print("new port")
                     temp_port += 1
 
+    def shutdown(self):
+        """Shutdown this node's Flask server"""
+        print(f"Shutting down node {self.node_id}")
+        
+        # Mark as not alive - this will cause the server to reject new requests
+        self.is_node_alive = False
+        
+        # Set shutdown event to signal any waiting operations
+        self.shutdown_event.set()
 
     def _setup_routes(self):
         # Middleware to check if node is alive before handling any request
         @self.app.before_request
         def check_node_alive():
             if not self.is_node_alive:
+                print("node ", self.node_id, " is not alive..")
                 return jsonify({"status": "Not alive"}), 401
 
         @self.app.route('/ping', methods=["GET"])
@@ -75,11 +93,12 @@ class NodeComposition(threading.Thread):
         
         @self.app.route('/bootup', methods=['POST'])
         def bootup_end():
+            print('Node ', self.node_id, ' recieved a bootup msg')
             data = request.get_json()
             src = data.get("src")
 
             self.new_node(src)
-            return jsonify({"status": self.leader_id}), 200
+            return jsonify({"status": self.leader_id, "node_ids": self.nodes}), 200
         
         @self.app.route('/coordinator', methods=['PUT'])
         def coordinator_end():
@@ -105,6 +124,54 @@ class NodeComposition(threading.Thread):
     # ---------------------------------------------------
     # Methods called inside of node
     # ---------------------------------------------------
+    def find_node(self):
+        """
+            Scan ports to find a thread that is alive
+        """
+        port = self.discover_peers()
+        print("The port found in disdovery: ", port, " for node: ", self.node_id)
+        # now check that node is alive, else we need discovery again
+        time.sleep(1)
+        resp = self.send_uni_cast(port, "BOOTUP")
+        print("response from bootuyp: ", resp)
+        while not resp or resp.status_code == 404:
+            port = self.discover_peers((port, 65000))
+            if port == -1:
+                # then no port could be found
+                return []
+            resp = self.send_uni_cast(port, "BOOTUP")
+            if not resp:
+                print("something went wrong in send_uni_cast")
+                return []
+            print("response from bootuyp: ", resp, resp.status_code == 404)
+         
+        print("resp worked, port ", port, " Is alivre!!!!")
+        data = resp.json()
+        node_ids = data['node_ids']
+        print("got these node ids from other node: ", node_ids)
+        return [port] + node_ids
+
+    def check_port(self, port):
+        """Quick check if a Flask app is running on this port"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.1)  # 100ms timeout
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            return port if result == 0 else None
+        except socket.error:
+            return None
+
+    def discover_peers(self, port_range=(50000, 65000)):
+        """Parallel port scan"""
+        print("port range: ", port_range)
+
+        for port in range(*port_range):
+            prt = self.check_port(port)
+            if prt and not prt == self.node_id:
+                return prt
+        return -1
+
     def new_node(self, node_id):
         """
             Whenever a bootup is registered we check if a new node should be appended to the list
@@ -157,11 +224,12 @@ class NodeComposition(threading.Thread):
             msg (str): message to send
         """
         self.messages_count += 1
+        print("sending to port: ", dst_node_id)
 
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
         target_port = int(dst_node_id)
         url = f'http://localhost:{target_port}/{msg_type.lower()}'
-
+        print("url: ", url)
         message = {"src": self.node_id, "dst": dst_node_id, "type": msg_type}
         if self.node_id == dst_node_id:
             print("fucking idiot")
@@ -176,6 +244,6 @@ class NodeComposition(threading.Thread):
                 return requests.get(url, json=message, timeout=0.5)
 
         except ConnectionError:
-            # print(f'Error occurred whilst unicasting to node {dst_node_id}')
+            print(f'Error occurred whilst unicasting to node {dst_node_id}')
             return None
         # except requests.exceptions

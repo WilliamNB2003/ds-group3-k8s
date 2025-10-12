@@ -1,8 +1,9 @@
+import sys
+import time
+import signal
+
 from NodeImproved import Node
 # from node import Node
-
-import time
-
 class System:
     """
         System is a test class for the bully election (Non-improved)
@@ -18,10 +19,11 @@ class System:
             my_node = Node(node_id, known_nodes)
             my_node.start_node()
             self.nodes.append(my_node)
-            while not my_node.has_found_port:
-                time.sleep(0.1)
-                print("not working")
+            # while not my_node.has_found_port:
+            #     time.sleep(0.1)
+            #     print("not working")
             known_nodes.append(my_node.node_id)
+            time.sleep(0.1)
 
     def kill_node(self, node_id: int):
         node_to_kill = self.nodes[node_id-1]
@@ -71,49 +73,63 @@ class System:
         self.nodes.append(my_node)
         print(f"added node {node_id}")
 
+    def shutdown_all_nodes(self):
+        """Properly shutdown all Flask servers and threads"""
+        print(f"Shutting down {len(self.nodes)} nodes...")
+        
+        for node in self.nodes:
+            try:
+                # Stop Flask server if it has a shutdown method
+                if hasattr(node, 'shutdown'):
+                    node.shutdown()
+                    
+            except Exception as e:
+                print(f"Error shutting down node {node.node_id}: {e}")
+        
+        # Give a moment for shutdown to propagate
+        time.sleep(1)
+        
+        # Wait for threads to finish (with timeout)
+        print("Waiting for threads to finish...")
+        for node in self.nodes:
+            if node.is_alive():
+                print(f"Waiting for node {node.node_id} to shutdown...")
+                node.join(timeout=3)
+                if node.is_alive():
+                    print(f"Node {node.node_id} thread did not shutdown gracefully, it may still be running")
+        
+        print("All nodes shutdown complete")
+
 
 if __name__ == '__main__':
     message_count = []
     system = System(2)
-    time.sleep(0.4)
-    for i in range(50):
-        system.clearCount()
-        system.kill_node(i+2)
-        system.node_to_ping_leader(1)
-        # time.sleep(1)
-        message_count.append(system.getSystemMessagesCount())
-        system.getSystemSummary()
-        system.revive_node(i+2)
-        system.addNewNode()
-        time.sleep(1)
-        print('for loop done:', i)
-    print('done :)')
-    print(message_count)
-
-
-
-
-
-
-
-
-    # # while True:
-    # system.getSystemSummary()
-    # time.sleep(7)
-    # system.kill_node(17)
-    # system.kill_node(18)
-    # system.kill_node(16)
-    # system.kill_node(11)
-    # time.sleep(1)
-    # system.node_to_ping_leader(8)
-    # system.getSystemSummary()
-    # system.revive_node(18)
-    # system.getSystemSummary()
-    # system.revive_node(16)
-    # system.getSystemSummary()
-
-    # # Add new node
-    # time.sleep(1)
-    # system.addNewNode()
-    # system.getSystemSummary()
-
+    def signal_handler(sig, frame):
+        print('\nShutting down gracefully...')
+        system.shutdown_all_nodes()  # You need to implement this
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)
+    try:
+        time.sleep(0.4)
+        for i in range(50):
+            system.clearCount()
+            system.kill_node(i+2)
+            system.node_to_ping_leader(1)
+            # time.sleep(1)
+            message_count.append(system.getSystemMessagesCount())
+            system.getSystemSummary()
+            system.revive_node(i+2)
+            system.addNewNode()
+            time.sleep(1)
+            print('for loop done:', i)
+        print('done :)')
+        print(message_count)
+    except KeyboardInterrupt:
+        print('\nInterrupted by user')
+    except Exception as e:
+        print(f'Error: {e}')
+    finally:
+        print("cleaning up")
+        system.shutdown_all_nodes()

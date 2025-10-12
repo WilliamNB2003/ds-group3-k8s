@@ -11,7 +11,7 @@ class Node(NodeComposition):
     """Node thread, listening when instantiated"""
 
     def __init__ (self, node_id: int, nodes: list[int]):
-        super().__init__(node_id, nodes, False)
+        super().__init__(node_id, nodes, True)
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
@@ -20,22 +20,12 @@ class Node(NodeComposition):
         self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
+        # First call parent's _setup_routes to get all base routes
+        super()._setup_routes()
+        
         @self.app.route('/election', methods=["GET"])
         def election_end():
-
             return jsonify({"status": "OK"}), 200
-        
-        @self.app.route('/coordinator', methods=['PUT'])
-        def coordinator_end():
-            data = request.get_json()
-            
-            new_leader = data.get('leader_id')
-            # if new_leader == -1:
-            # print(f'recieved new leader is -1, from node {src}')
-            self.leader_id = int(new_leader)
-            self.is_leader = False
-            # print(f'New leader is {int(src)}, {self.node_id}')
-            return jsonify({"status": "Acknowledged"}), 200
 
     # ---------------------------------------------------
     #  Methods called outside of node
@@ -67,6 +57,9 @@ class Node(NodeComposition):
         """
             Broadcasts to all other nodes that this node exists, so they update their table
         """
+        print("discovery: node id: ", self.node_id)
+        node_ids = self.find_node()
+        self.nodes = self.nodes + node_ids
         # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
         responses = self.send_broadcast('BOOTUP')
 
