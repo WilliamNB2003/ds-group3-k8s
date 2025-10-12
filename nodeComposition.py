@@ -50,20 +50,19 @@ class NodeComposition(threading.Thread):
         while(True):
             if temp_port > 65000:
                 raise Exception("No free port")
-            else:
-                try:
-                    print("Trying to find port")
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.bind(("127.0.0.1", temp_port))
-                    print("found port")
-                    self.node_id = temp_port
-                    self.has_found_port = True
-                    # Run Flask server with threaded=True to handle concurrent requests
-                    self.app.run(host="127.0.0.1", port=temp_port, debug=False, use_reloader=False, threaded=True)
-                    break
-                except Exception:
-                    print("new port")
-                    temp_port += 1
+            try:
+                print("Trying to find port")
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(("127.0.0.1", temp_port))
+                print("found port")
+                self.node_id = temp_port
+                self.has_found_port = True
+                # Run Flask server with threaded=True to handle concurrent requests
+                self.app.run(host="127.0.0.1", port=temp_port, debug=False, use_reloader=False, threaded=True)
+                break
+            except Exception:
+                print("new port")
+                temp_port += 1
 
     def shutdown(self):
         """Shutdown this node's Flask server"""
@@ -82,6 +81,8 @@ class NodeComposition(threading.Thread):
             if not self.is_node_alive:
                 print("node ", self.node_id, " is not alive..")
                 return jsonify({"status": "Not alive"}), 401
+            else:
+                return None
 
         @self.app.route('/ping', methods=["GET"])
         def ping_end():
@@ -98,7 +99,7 @@ class NodeComposition(threading.Thread):
             src = data.get("src")
 
             self.new_node(src)
-            return jsonify({"status": self.leader_id, "node_ids": self.nodes}), 200
+            return jsonify({"leader_id": self.leader_id, "node_ids": self.nodes}), 200
         
         @self.app.route('/coordinator', methods=['PUT'])
         def coordinator_end():
@@ -109,7 +110,7 @@ class NodeComposition(threading.Thread):
             # print(f'recieved new leader is -1, from node {src}')
             self.leader_id = int(new_leader)
             self.is_leader = False
-            # print(f'New leader is {int(src)}, {self.node_id}')
+            print(f'New leader is {int(new_leader)}, {self.node_id}')
             return jsonify({"status": "Acknowledged"}), 200
 
     # ---------------------------------------------------
@@ -124,7 +125,8 @@ class NodeComposition(threading.Thread):
     # ---------------------------------------------------
     # Methods called inside of node
     # ---------------------------------------------------
-    def find_node(self):
+
+    def discovery(self):
         """
             Scan ports to find a thread that is alive
         """
@@ -202,7 +204,7 @@ class NodeComposition(threading.Thread):
                 resp = ''
                 if msg == 'COORDINATOR':
                     # this endpoint retrives 
-                    message = {"src": self.node_id, "dst": node, "type": msg, 'leader_id': self.node_id}
+                    message = {"src": self.node_id, "dst": node, 'leader_id': self.leader_id}
                     resp =  requests.put(url, json=message, timeout=0.5)
                 elif msg == 'BOOTUP':
                     resp =  requests.post(url, json=message, timeout=0.5)
@@ -230,7 +232,7 @@ class NodeComposition(threading.Thread):
         target_port = int(dst_node_id)
         url = f'http://localhost:{target_port}/{msg_type.lower()}'
         print("url: ", url)
-        message = {"src": self.node_id, "dst": dst_node_id, "type": msg_type}
+        message = {"src": self.node_id, "dst": dst_node_id}
         if self.node_id == dst_node_id:
             print("fucking idiot")
             return
@@ -243,7 +245,7 @@ class NodeComposition(threading.Thread):
             else:
                 return requests.get(url, json=message, timeout=0.5)
 
-        except ConnectionError:
+        except requests.exceptions.ConnectionError:
             print(f'Error occurred whilst unicasting to node {dst_node_id}')
             return None
         # except requests.exceptions

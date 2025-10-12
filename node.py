@@ -24,12 +24,6 @@ class Node(NodeComposition):
         self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
-        # Middleware to check if node is alive before handling any request
-        @self.app.before_request
-        def check_node_alive():
-            if not self.is_node_alive:
-                return jsonify({"status": "Not alive"}), 401
-
         @self.app.route('/election', methods=["GET"])
         def election_end():
             if self.election_lock.acquire(blocking=False):
@@ -65,6 +59,10 @@ class Node(NodeComposition):
         """
             Broadcasts to all other nodes that this node exists, so they update their table
         """
+        print("discovery: node id: ", self.node_id)
+        node_ids = self.discovery()
+        self.nodes = self.nodes + node_ids
+        print("cuurent knoiwn nodes: ", self.nodes, " for node ", self.node_id)
         responses = self.send_broadcast('BOOTUP')
 
         # Update the leader ID for the booted up node
@@ -75,7 +73,7 @@ class Node(NodeComposition):
         for response in responses:
             data = response.json()
             if response and response.status_code == 200:
-                self.leader_id = int(data["status"])
+                self.leader_id = max(self.leader_id, int(data["status"]))
                 break
 
         if self.leader_id < self.node_id:
@@ -92,24 +90,20 @@ class Node(NodeComposition):
             print(f"Node {self.node_id} send election to {len(election_candidates)} node")
             # Check if there are no candidates, elect self as leader if no candidates
             if len(election_candidates) == 0:
-                
-                self.send_broadcast('COORDINATOR')
                 self.leader_id = self.node_id
+                self.send_broadcast('COORDINATOR')
                 return
 
-            responses = []
             # If there are candidates call election on them
             for candidate in election_candidates:
                 response = self.send_uni_cast(candidate, 'ELECTION')
-                responses.append(response)
-            
-            for response in responses:
+                # If there is just 1 response, then don't do anything
                 if (response is not None and response.status_code == 200):
                     return
-                
+
             # If no 'ok' from higher candidate, you are then leader
+            self.leader_id = self.node_id
             self.send_broadcast('COORDINATOR')
             self.is_leader = True
-            self.leader_id = self.node_id
         finally:
             self.election_lock.release()

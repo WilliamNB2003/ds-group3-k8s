@@ -1,7 +1,7 @@
 """Improved bully election algorithm
 """
 import time
-from flask import request, jsonify
+from flask import jsonify
 from nodeComposition import NodeComposition
 
 PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
@@ -43,11 +43,11 @@ class Node(NodeComposition):
             Check if leader is alive
         """
         response = self.send_uni_cast(self.leader_id, "PING")
-        if response is None or not (response.status_code == 200):
+        if response is None or not response.status_code == 200:
             if len(self.nodes) > 0:
                 self.nodes.pop()
             self.election()
-            return
+            # return
         # print('Leader is still alive: ', response.status_code)
 
     # ---------------------------------------------------
@@ -58,7 +58,7 @@ class Node(NodeComposition):
             Broadcasts to all other nodes that this node exists, so they update their table
         """
         print("discovery: node id: ", self.node_id)
-        node_ids = self.find_node()
+        node_ids = self.discovery()
         self.nodes = self.nodes + node_ids
         # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
         responses = self.send_broadcast('BOOTUP')
@@ -73,8 +73,8 @@ class Node(NodeComposition):
 
             data = response.json()
             if response and response.status_code == 200:
-                self.leader_id = int(data["status"])
-                break
+                self.leader_id = max(self.leader_id, int(data["leader_id"]))
+                # break
 
         if self.leader_id < self.node_id:
             self.election()
@@ -87,7 +87,6 @@ class Node(NodeComposition):
         election_candidates = [node for node in self.nodes if (node > self.node_id)]
         # Check if there are no candidates, elect self as leader if no candidates
         if len(election_candidates) == 0:
-            self.send_broadcast('COORDINATOR')
             self.leader_id = self.node_id
             return
 
@@ -101,11 +100,11 @@ class Node(NodeComposition):
         
         if highest_id > self.node_id:
             # this candidate is now leader
-            
-            self.send_broadcast('COORDINATOR')
-            return
+            self.leader_id = highest_id
+        else:
+            # If no 'ok' from higher candidate, you are then leader
+            self.leader_id = self.node_id
+            self.is_leader = True
 
-        # If no 'ok' from higher candidate, you are then leader
+        # this node should always end up sending out who is coordinator
         self.send_broadcast('COORDINATOR')
-        self.is_leader = True
-        self.leader_id = self.node_id
