@@ -131,7 +131,7 @@ class NodeComposition(threading.Thread):
         port = self.discover_peers()
         print("The port found in disdovery: ", port, " for node: ", self.node_id)
         # now check that node is alive, else we need discovery again
-        time.sleep(1)
+        # time.sleep(1)
         resp = self.send_uni_cast(port, "BOOTUP")
         print("response from bootuyp: ", resp)
         while not resp or resp.status_code == 404:

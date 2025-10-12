@@ -14,15 +14,11 @@ class System:
     def __init__(self, amount_nodes: int):
         node_ids = list(range(1, amount_nodes + 1))
         self.nodes = []
-        # known_nodes = []
         for node_id in node_ids:
             my_node = Node(node_id)
             my_node.start_node()
             self.nodes.append(my_node)
-            # while not my_node.has_found_port:
-            #     time.sleep(0.1)
-            #     print("not working")
-            time.sleep(0.1)
+            # time.sleep(0.1)
 
     def kill_node(self, node_id: int):
         node_to_kill = self.nodes[node_id-1]
@@ -78,7 +74,6 @@ class System:
         
         for node in self.nodes:
             try:
-                # Stop Flask server if it has a shutdown method
                 if hasattr(node, 'shutdown'):
                     node.shutdown()
                     
@@ -102,16 +97,16 @@ class System:
 
 if __name__ == '__main__':
     messages_count = []
-    system = System(2)
+    system = System(amount_nodes=2)
     def signal_handler(sig, frame):
         print('\nShutting down gracefully...')
-        system.shutdown_all_nodes()  # You need to implement this
+        system.shutdown_all_nodes()
         sys.exit(0)
     
     signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
     signal.signal(signal.SIGTERM, signal_handler)
     try:
-        time.sleep(0.4)
+        # time.sleep(0.4)
         for i in range(50):
             system.clearCount()
             system.kill_node(i+2)
@@ -121,7 +116,7 @@ if __name__ == '__main__':
             system.getSystemSummary()
             system.revive_node(i+2)
             system.addNewNode()
-            time.sleep(1)
+            time.sleep(0.5)
             print('for loop done:', i)
         print('done :)')
         print(messages_count)

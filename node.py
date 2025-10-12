@@ -19,9 +19,9 @@ class Node(NodeComposition):
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
-        self.start()            # starts the Flask server in background thread
-        time.sleep(0.1)           # give server time to bind to port
-        self.bootup()           # now safe to send HTTP requests
+        self.start()
+        # time.sleep(0.1)
+        self.bootup()
 
     def _setup_routes(self):
         # First call parent's _setup_routes to get all base routes
@@ -47,7 +47,7 @@ class Node(NodeComposition):
         """
             Check if leader is alive
         """
-        time.sleep(0.2)
+        # time.sleep(0.2)
         response = self.send_uni_cast(self.leader_id, "PING")
         if response is None or not (response.status_code == 200):
             self.nodes.pop()
@@ -76,7 +76,7 @@ class Node(NodeComposition):
         for response in responses:
             data = response.json()
             if response and response.status_code == 200:
-                self.leader_id = max(self.leader_id, int(data["status"]))
+                self.leader_id = max(self.leader_id, int(data["leader_id"]))
                 break
 
         if self.leader_id < self.node_id:
