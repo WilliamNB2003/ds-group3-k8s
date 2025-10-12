@@ -10,8 +10,8 @@ message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING', 'WINNER']
 class Node(NodeComposition):
     """Node thread, listening when instantiated"""
 
-    def __init__ (self, node_id: int, nodes: list[int]):
-        super().__init__(node_id, nodes, True)
+    def __init__ (self, node_id: int):
+        super().__init__(node_id, True)
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
@@ -62,7 +62,7 @@ class Node(NodeComposition):
         self.nodes = self.nodes + node_ids
         # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
         responses = self.send_broadcast('BOOTUP')
-
+        print("responses from bootup: ", responses)
         # Update the leader ID for the booted up node
         if len(responses) == 0:
             self.election()
@@ -75,7 +75,7 @@ class Node(NodeComposition):
             if response and response.status_code == 200:
                 self.leader_id = max(self.leader_id, int(data["leader_id"]))
                 # break
-
+        print(self.leader_id, self.node_id)
         if self.leader_id < self.node_id:
             self.election()
 
@@ -88,7 +88,6 @@ class Node(NodeComposition):
         # Check if there are no candidates, elect self as leader if no candidates
         if len(election_candidates) == 0:
             self.leader_id = self.node_id
-            return
 
         # If there are candidates call election on them
         highest_id = -1

@@ -14,15 +14,14 @@ class System:
     def __init__(self, amount_nodes: int):
         node_ids = list(range(1, amount_nodes + 1))
         self.nodes = []
-        known_nodes = []
+        # known_nodes = []
         for node_id in node_ids:
-            my_node = Node(node_id, known_nodes)
+            my_node = Node(node_id)
             my_node.start_node()
             self.nodes.append(my_node)
             # while not my_node.has_found_port:
             #     time.sleep(0.1)
             #     print("not working")
-            known_nodes.append(my_node.node_id)
             time.sleep(0.1)
 
     def kill_node(self, node_id: int):
@@ -68,7 +67,7 @@ class System:
 
     def addNewNode(self):
         node_id = len(self.nodes) + 1
-        my_node = Node(node_id, list(range(1, node_id)))
+        my_node = Node(node_id)
         my_node.start_node()
         self.nodes.append(my_node)
         print(f"added node {node_id}")
@@ -102,7 +101,7 @@ class System:
 
 
 if __name__ == '__main__':
-    message_count = []
+    messages_count = []
     system = System(2)
     def signal_handler(sig, frame):
         print('\nShutting down gracefully...')
@@ -118,14 +117,14 @@ if __name__ == '__main__':
             system.kill_node(i+2)
             system.node_to_ping_leader(1)
             # time.sleep(1)
-            message_count.append(system.getSystemMessagesCount())
+            messages_count.append(system.getSystemMessagesCount())
             system.getSystemSummary()
             system.revive_node(i+2)
             system.addNewNode()
             time.sleep(1)
             print('for loop done:', i)
         print('done :)')
-        print(message_count)
+        print(messages_count)
     except KeyboardInterrupt:
         print('\nInterrupted by user')
     except Exception as e:

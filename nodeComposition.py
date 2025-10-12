@@ -6,8 +6,6 @@
 import threading
 import socket
 import time
-import os
-import signal
 from flask import Flask, request, jsonify
 import requests
 
@@ -26,13 +24,13 @@ class NodeComposition(threading.Thread):
     has_found_port: bool
     port: int
 
-    def __init__ (self, node_id: int, nodes: list[int], daemon: bool):
+    def __init__ (self, node_id: int, daemon: bool):
         super().__init__(daemon=daemon)
         self.node_id = node_id
         self.is_node_alive = True
         self.is_leader = False
         self.leader_id = -1
-        self.nodes = nodes
+        self.nodes = []
         self.messages_count = 0
         self.election_lock = threading.Lock()
         self.has_found_port = False
@@ -94,9 +92,9 @@ class NodeComposition(threading.Thread):
         
         @self.app.route('/bootup', methods=['POST'])
         def bootup_end():
-            print('Node ', self.node_id, ' recieved a bootup msg')
             data = request.get_json()
             src = data.get("src")
+            print('Node ', self.node_id, ' recieved a bootup msg from ', src)
 
             self.new_node(src)
             return jsonify({"leader_id": self.leader_id, "node_ids": self.nodes}), 200
@@ -207,13 +205,14 @@ class NodeComposition(threading.Thread):
                     message = {"src": self.node_id, "dst": node, 'leader_id': self.leader_id}
                     resp =  requests.put(url, json=message, timeout=0.5)
                 elif msg == 'BOOTUP':
+                    print("sending bootup, " , url)
                     resp =  requests.post(url, json=message, timeout=0.5)
                 else:
                     resp =  requests.get(url, json=message, timeout=0.5)
 
                 responses.append(resp)
             except requests.exceptions.ConnectionError:
-                # print(f'Error occurred whilst sending broadcast to node {node}')
+                print(f'Error occurred whilst sending broadcast to node {node}')
                 continue
             # except Co
         return responses

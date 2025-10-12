@@ -14,8 +14,8 @@ message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
 class Node(NodeComposition):
     """Node thread, listening when instantiated"""
 
-    def __init__ (self, node_id: int, nodes: list[int]):
-        super().__init__(node_id, nodes, daemon=True)
+    def __init__ (self, node_id: int):
+        super().__init__(node_id, daemon=True)
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
@@ -24,6 +24,9 @@ class Node(NodeComposition):
         self.bootup()           # now safe to send HTTP requests
 
     def _setup_routes(self):
+        # First call parent's _setup_routes to get all base routes
+        super()._setup_routes()
+        
         @self.app.route('/election', methods=["GET"])
         def election_end():
             if self.election_lock.acquire(blocking=False):
