@@ -2,8 +2,8 @@ import sys
 import time
 import signal
 
-from NodeImproved import Node
-# from node import Node
+# from NodeImproved import Node
+from node import Node
 class System:
     """
         System is a test class for the bully election (Non-improved)
@@ -56,8 +56,9 @@ class System:
     def getSystemMessagesCount(self):
         message_count = 0
         for node in self.nodes:
-            print(node.messages_count)
-            message_count += node.messages_count
+            count = node.getMessageCount()
+            print(f"node {node.node_id} message count: ", count)
+            message_count += count
         
         return message_count
 
@@ -86,7 +87,7 @@ class System:
         # Wait for threads to finish (with timeout)
         print("Waiting for threads to finish...")
         for node in self.nodes:
-            if node.is_alive():
+            while node.is_alive():
                 print(f"Waiting for node {node.node_id} to shutdown...")
                 node.join(timeout=3)
                 if node.is_alive():

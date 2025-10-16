@@ -1,11 +1,10 @@
-"""Improved bully election algorithm
+"""
+Improved bully election algorithm
 """
 import time
 from flask import jsonify
 from nodeComposition import NodeComposition
 
-PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
-message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING', 'WINNER']
 
 class Node(NodeComposition):
     """Node thread, listening when instantiated"""
@@ -103,7 +102,6 @@ class Node(NodeComposition):
         else:
             # If no 'ok' from higher candidate, you are then leader
             self.leader_id = self.node_id
-            self.is_leader = True
 
         # this node should always end up sending out who is coordinator
         self.send_broadcast('COORDINATOR')

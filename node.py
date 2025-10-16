@@ -1,15 +1,9 @@
-"""Initial Bully algorithm implementation
-
-    Returns:
-        _type_: _description_
+"""
+Initial Bully algorithm implementation
 """
 import threading
-import time
 from flask import jsonify
 from nodeComposition import NodeComposition
-
-PORT = 50000 # Port 50000 is broadcast and 50001 is node 1 etc...
-message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
 
 class Node(NodeComposition):
     """Node thread, listening when instantiated"""
@@ -50,10 +44,8 @@ class Node(NodeComposition):
         # time.sleep(0.2)
         response = self.send_uni_cast(self.leader_id, "PING")
         if response is None or not (response.status_code == 200):
-            self.nodes.pop()
-            if self.election_lock.acquire(blocking=False):
-                threading.Thread(target=self.election, daemon=True).start()
-            return
+            # self.nodes.pop()
+            self.election()
 
     # ---------------------------------------------------
     # Methods called inside of node
@@ -70,8 +62,7 @@ class Node(NodeComposition):
 
         # Update the leader ID for the booted up node
         if len(responses) == 0:
-            if self.election_lock.acquire(blocking=False):
-                threading.Thread(target=self.election, daemon=True).start()
+            self.election()
 
         for response in responses:
             data = response.json()
@@ -80,13 +71,17 @@ class Node(NodeComposition):
                 break
 
         if self.leader_id < self.node_id:
-            if self.election_lock.acquire(blocking=False):
-                threading.Thread(target=self.election, daemon=True).start()
+            self.election()
 
     def election(self):
         """
             Host an election, whenever a leader is either down or there is a new candidate
         """
+        # Try to acquire the lock, if already held by another election, skip
+        if not self.election_lock.acquire(blocking=False):
+            print(f"Node {self.node_id}: Election already in progress, skipping")
+            return
+            
         try:
             # Collect the ID's higher than my own:
             election_candidates = [node for node in self.nodes if (node > self.node_id)]
@@ -107,6 +102,5 @@ class Node(NodeComposition):
             # If no 'ok' from higher candidate, you are then leader
             self.leader_id = self.node_id
             self.send_broadcast('COORDINATOR')
-            self.is_leader = True
         finally:
             self.election_lock.release()
