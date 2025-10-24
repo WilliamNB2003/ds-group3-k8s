@@ -4,6 +4,8 @@ Composition node class, incompassing all functions not unique to the intial/impr
 import threading
 import socket
 import time
+import os
+import signal
 from flask import Flask, request, jsonify
 import requests
 
@@ -29,6 +31,7 @@ class NodeComposition(threading.Thread):
         self.election_lock = threading.Lock()
         self.server_process = None
         self.shutdown_event = threading.Event()
+        self.shutdown_in_progress = False  # Add flag to prevent multiple shutdowns
 
         self.app = Flask(__name__)
         self._setup_routes()
@@ -56,18 +59,24 @@ class NodeComposition(threading.Thread):
 
     def shutdown(self):
         """Shutdown this node's Flask server"""
+        if self.shutdown_in_progress:
+            print(f"Node {self.node_id} shutdown already in progress, skipping...")
+            return
+            
+        self.shutdown_in_progress = True
         print(f"Shutting down node {self.node_id}")
         
-        # Mark as not alive - this will cause the server to reject new requests
+        # Mark as not alive immediately
         self.is_node_alive = False
-        
-        # Set shutdown event to signal any waiting operations
         self.shutdown_event.set()
 
     def _setup_routes(self):
         # Middleware to check if node is alive before handling any request
         @self.app.before_request
         def check_node_alive():
+            # Allow shutdown requests even when node is not alive
+            if request.endpoint == 'shutdown':
+                return None
             if not self.is_node_alive:
                 print("node ", self.node_id, " is not alive..")
                 return jsonify({"status": "Not alive"}), 401
@@ -101,6 +110,33 @@ class NodeComposition(threading.Thread):
             print(f'New leader is {int(new_leader)}, {self.node_id}')
             return jsonify({"status": "Acknowledged"}), 200
 
+        @self.app.route('/shutdown', methods=['POST'])
+        def shutdown():
+            print(f"Shutdown request received for node {self.node_id}")
+            
+            # Set the shutdown flag
+            self.is_node_alive = False
+            
+            # Use a more graceful shutdown approach
+            # Instead of killing the process, use threading to shutdown
+            def delayed_shutdown():
+                import time
+                time.sleep(0.1)  # Small delay to let response be sent
+                func = request.environ.get('werkzeug.server.shutdown')
+                if func is not None:
+                    func()
+                else:
+                    # For newer versions of Werkzeug, we'll set a flag
+                    # The Flask server will need to be stopped from outside
+                    pass
+            
+            # Start shutdown in a separate thread
+            import threading
+            shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
+            shutdown_thread.start()
+            
+            return jsonify({"status": "Server shutting down"}), 200
+
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
@@ -109,43 +145,57 @@ class NodeComposition(threading.Thread):
             Event that is controlled by the team to un alive a node
         """
         self.is_node_alive = False
+        print("------------------------------------------------------")
+        print("Node: ", self.node_id, " was killed in NodeComposition")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("======================================================")
 
     # ---------------------------------------------------
     # Methods called inside of node
     # ---------------------------------------------------
 
     def discovery(self):
-        """
-            Scan ports to find a thread that is alive
-        """
+        """Scan ports to find a thread that is alive"""
         port = self.discover_peers()
-        # now check that node is alive, else we need discovery again
-        resp = self.send_uni_cast(port, "BOOTUP")
-        while not resp or resp.status_code == 404:
-            # do this until you found a living node 
-            port = self.discover_peers((port, 65000))
+        if port == -1:
+            return []
+        
+        # Try multiple times to find a responsive node
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                resp = self.send_uni_cast(port, "BOOTUP")
+                if resp and resp.status_code == 200:
+                    data = resp.json()
+                    node_ids = data['node_ids']
+                    return [port] + node_ids
+            except Exception as e:
+                print(f"Attempt {attempt + 1} failed for port {port}: {e}")
+            
+            # Try next available port
+            port = self.discover_peers((port + 1, 65000))
             if port == -1:
-                # then no port could be found
-                return []
-            # else try new port found, check if it's alive
-            resp = self.send_uni_cast(port, "BOOTUP")
-            if not resp:
-                print("something went wrong in send_uni_cast")
-                return []
-        # The living node should've sent it's known nodes in the body
-        data = resp.json()
-        node_ids = data['node_ids']
-        return [port] + node_ids
+                break
+        
+        return []
 
     def check_port(self, port):
         """Quick check if a Flask app is running on this port"""
+        #try:
+        #    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #    sock.settimeout(0.1)  # 100ms timeout
+        #    result = sock.connect_ex(('localhost', port))
+        #    sock.close()
+        #    return port if result == 0 else None
+        #except socket.error:
+        #    return None
+        
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.1)  # 100ms timeout
-            result = sock.connect_ex(('localhost', port))
-            sock.close()
-            return port if result == 0 else None
-        except socket.error:
+            import requests
+            if port > 0:
+                response = requests.get(f'http://localhost:{port}/ping', timeout=0.2)
+                return port if response.status_code == 200 else None
+        except:
             return None
 
     def discover_peers(self, port_range=(50000, 65000)):

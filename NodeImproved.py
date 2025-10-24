@@ -61,6 +61,10 @@ class Node(NodeComposition):
         """
         print("discovery: node id: ", self.node_id)
         node_ids = self.discovery()
+        # Remove duplicates and self from the node list
+        self.nodes = list(set(self.nodes + node_ids))
+        if self.node_id in self.nodes:
+            self.nodes.remove(self.node_id)
         node_ids_filtered = [nid for nid in node_ids if nid != self.node_id]
         self.nodes = self.nodes + node_ids_filtered
         # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
@@ -69,18 +73,22 @@ class Node(NodeComposition):
         # Update the leader ID for the booted up node
         if len(responses) == 0:
             self.election()
+            return
 
+        reported_leader = -1
         for response in responses:
             if response.status_code == 404:
                 continue
 
             data = response.json()
             if response and response.status_code == 200:
-                self.leader_id = max(self.leader_id, int(data["leader_id"]))
+                reported_leader = max(reported_leader, int(data["leader_id"]))
                 # break
         print(self.leader_id, self.node_id)
-        if self.leader_id < self.node_id:
+        if reported_leader < self.node_id:
             self.election()
+        else: 
+            self.leader_id = reported_leader
 
     def election(self):
         """
