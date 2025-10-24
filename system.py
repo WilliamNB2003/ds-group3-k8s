@@ -2,8 +2,8 @@ import sys
 import time
 import signal
 
-# from NodeImproved import Node
-from node import Node
+from NodeImproved import Node
+# from node import Node
 class System:
     """
         System is a test class for the bully election (Non-improved)
@@ -61,7 +61,7 @@ class System:
         
     def clearCount(self):
         for node in self.nodes:
-            node.resetMessageCount()
+            node.reset_message_count()
 
     def getSystemSummary(self):
         print("\n---------- System summary ----------")

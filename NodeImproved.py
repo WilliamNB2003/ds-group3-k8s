@@ -10,7 +10,7 @@ class Node(NodeComposition):
     """Node thread, listening when instantiated"""
 
     def __init__ (self, node_id: int):
-        super().__init__(node_id, True)
+        super().__init__(node_id)
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
@@ -30,7 +30,7 @@ class Node(NodeComposition):
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
-    def resetMessageCount(self):
+    def reset_message_count(self):
         self.messages_count = 0
 
     def revive_node(self):

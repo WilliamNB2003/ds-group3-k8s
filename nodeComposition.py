@@ -18,18 +18,15 @@ class NodeComposition(threading.Thread):
     leader_id: int
     nodes: list[int]
     messages_count : int
-    has_found_port: bool
-    port: int
 
-    def __init__ (self, node_id: int, daemon: bool):
-        super().__init__(daemon=daemon)
+    def __init__ (self, node_id: int):
+        super().__init__(daemon=True)
         self.node_id = node_id
         self.is_node_alive = True
         self.leader_id = -1
         self.nodes = []
         self.messages_count = 0
         self.election_lock = threading.Lock()
-        self.has_found_port = False
         self.server_process = None
         self.shutdown_event = threading.Event()
 
@@ -50,7 +47,6 @@ class NodeComposition(threading.Thread):
                     s.bind(("127.0.0.1", temp_port))
                 print("found port")
                 self.node_id = temp_port
-                self.has_found_port = True
                 # Run Flask server with threaded=True to handle concurrent requests
                 self.app.run(host="127.0.0.1", port=temp_port, debug=False, use_reloader=False, threaded=True)
                 break

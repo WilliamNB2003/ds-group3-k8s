@@ -10,7 +10,7 @@ class Node(NodeComposition):
     messages_lock: threading.Lock
 
     def __init__ (self, node_id: int):
-        super().__init__(node_id, daemon=True)
+        super().__init__(node_id)
         self.messages_lock = threading.Lock()
 
     def start_node(self):
@@ -31,7 +31,7 @@ class Node(NodeComposition):
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
-    def resetMessageCount(self):
+    def reset_message_count(self):
         with self.messages_lock:
             self.messages_count = 0
     
@@ -58,10 +58,6 @@ class Node(NodeComposition):
         with self.messages_lock:
             self.messages_count += amount
     
-    def get_messages(self):
-        with self.messages_lock:
-            return self.messages_count
-
     def bootup(self):
         """
             Broadcasts to all other nodes that this node exists, so they update their table
