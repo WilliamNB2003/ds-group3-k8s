@@ -9,8 +9,8 @@ from nodeComposition import NodeComposition
 class Node(NodeComposition):
     """Node thread, listening when instantiated"""
 
-    def __init__ (self, node_id: int):
-        super().__init__(node_id)
+    def __init__ (self, node_id: int, skip_discovery = False):
+        super().__init__(node_id=node_id, skip_discovery=skip_discovery)
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""

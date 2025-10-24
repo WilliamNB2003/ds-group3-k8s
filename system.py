@@ -15,8 +15,11 @@ class System:
         node_ids = list(range(0, amount_nodes))
         self.nodes = []
         self.node_class = node_class
+        skip_discovery = True
         for node_id in node_ids:
-            my_node = self.node_class(node_id + 1)
+            my_node = self.node_class(node_id + 1, skip_discovery=skip_discovery)
+            # only the first node should skip discovery
+            skip_discovery = False
             my_node.start_node()
             self.nodes.append(my_node)
         self.shutdown_in_progress = False  # Add flag to prevent cascading shutdowns
@@ -110,87 +113,91 @@ class System:
             print(f"Error shutting down node {node.node_id}: {e}")
 
 def testSystem(number_of_nodes, node_class):
-    if (number_of_nodes < 2):
-        raise ValueError("Must create the system with at least 2 nodes")
-    
-    failed_test = False
+    system = System(node_class=node_class, amount_nodes=number_of_nodes)
+    try:
+        if (number_of_nodes < 2):
+            raise ValueError("Must create the system with at least 2 nodes")
+        
+        failed_test = False
 
-    # Test that system startup works and find the correct leader
-    system = System(node_class, amount_nodes=number_of_nodes)
-    time.sleep(0.5)
-    leader_node_id = system.nodes[-1].node_id
-    for i in range(number_of_nodes):
-        if (not (system.nodes[i].leader_id == leader_node_id and system.nodes[i].is_node_alive)):
+        # Test that system startup works and find the correct leader
+        time.sleep(0.5)
+        leader_node_id = system.nodes[-1].node_id
+        for i in range(number_of_nodes):
+            if (not (system.nodes[i].leader_id == leader_node_id and system.nodes[i].is_node_alive)):
+                failed_test = True
+                print("Failed test 1")
+
+        # Test that when killing leader a new leader is found
+        system.kill_leader()
+        time.sleep(0.25)
+        system.node_to_ping_leader(0)
+        time.sleep(0.25)
+        leader_node_id = system.nodes[-2].node_id
+        for i in range(number_of_nodes):
+            if (i == number_of_nodes - 1):
+                # if we are the last node so highest id, then we should be dead
+                if (system.nodes[i].is_node_alive):
+                    failed_test = True
+                    print("Failed test 2 as node", i)
+            else:
+                if (not (system.nodes[i].leader_id == leader_node_id)):
+                    failed_test = True
+                    print("Failed test 3 as node", i)
+        system.getSystemSummary()
+
+        # Test that when the old leader gets revived it becomes leader again
+        system.revive_node(-1)
+        time.sleep(0.5)
+        leader_node_id = system.nodes[-1].node_id
+        for i in range(number_of_nodes):
+            if (not (system.nodes[i].leader_id == leader_node_id and system.nodes[i].is_node_alive)):
+                failed_test = True
+                print("Failed test 4 as node", i)
+
+        # Test that when new node gets added it becomes leader since it has highest id
+        system.addNewNode()
+        time.sleep(0.5)
+        if (not len(system.nodes) == number_of_nodes + 1):
             failed_test = True
-            print("Failed test 1")
+            print("Failed test 5")
 
-    # Test that when killing leader a new leader is found
-    system.kill_leader()
-    time.sleep(0.25)
-    system.node_to_ping_leader(0)
-    time.sleep(0.25)
-    leader_node_id = system.nodes[-2].node_id
-    for i in range(number_of_nodes):
-        if (i == number_of_nodes - 1):
-            # if we are the last node so highest id, then we should be dead
-            if (system.nodes[i].is_node_alive):
+        leader_node_id = system.nodes[-1].node_id
+        for i in range(number_of_nodes):
+            if (not (system.nodes[i].leader_id == leader_node_id and system.nodes[i].is_node_alive)):
                 failed_test = True
-                print("Failed test 2 as node", i)
-        else:
-            if (not (system.nodes[i].leader_id == leader_node_id)):
-                failed_test = True
-                print("Failed test 3 as node", i)
-    system.getSystemSummary()
-
-    # Test that when the old leader gets revived it becomes leader again
-    system.revive_node(-1)
-    time.sleep(0.5)
-    leader_node_id = system.nodes[-1].node_id
-    for i in range(number_of_nodes):
-        if (not (system.nodes[i].leader_id == leader_node_id and system.nodes[i].is_node_alive)):
-            failed_test = True
-            print("Failed test 4 as node", i)
-
-    # Test that when new node gets added it becomes leader since it has highest id
-    system.addNewNode()
-    time.sleep(0.5)
-    if (not len(system.nodes) == number_of_nodes + 1):
-        failed_test = True
-        print("Failed test 5")
-
-    leader_node_id = system.nodes[-1].node_id
-    for i in range(number_of_nodes):
-        if (not (system.nodes[i].leader_id == leader_node_id and system.nodes[i].is_node_alive)):
-            failed_test = True
-            print("Failed test 6")
+                print("Failed test 6")
 
 
-    # Test that all when non leader gets killed the leader doesn't change
-    system.kill_node(-2)
-    time.sleep(0.25)
-    system.node_to_ping_leader(0)
-    time.sleep(0.25)
-    for i in range(number_of_nodes):
-        if (i == number_of_nodes - 1):
-            # if we are the last node so highest id, then we should be dead
-            if (system.nodes[i].is_node_alive):
-                failed_test = True
-                print("Failed test 7 as node", i)
-        else:
-            if (not (system.nodes[i].leader_id == leader_node_id)):
-                failed_test = True
-                print("Failed test 8 as node", i)
-    system.getSystemSummary()
-    
-    
-    system.shutdown_all_nodes()
-    return failed_test
+        # Test that all when non leader gets killed the leader doesn't change
+        system.kill_node(-2)
+        time.sleep(0.25)
+        system.node_to_ping_leader(0)
+        time.sleep(0.25)
+        for i in range(number_of_nodes):
+            if (i == number_of_nodes - 1):
+                # if we are the last node so highest id, then we should be dead
+                if (system.nodes[i].is_node_alive):
+                    failed_test = True
+                    print("Failed test 7 as node", i)
+            else:
+                if (not (system.nodes[i].leader_id == leader_node_id)):
+                    failed_test = True
+                    print("Failed test 8 as node", i)
+        system.getSystemSummary()
+        
+        
+        return failed_test
+    finally:
+        # in case of an interrupt or other
+        system.shutdown_all_nodes()
+
 
 # This is a test, to check that the system works
 if __name__ == '__main__':
     try:
-        old = not testSystem(3, oldNode)
         improved = not testSystem(3, newNode)
+        old = not testSystem(3, oldNode)
         print(f'The old node passed the test: {old}')
         print(f'The improved node passed the test: {improved}')
 

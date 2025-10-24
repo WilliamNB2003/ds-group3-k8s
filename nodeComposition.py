@@ -20,10 +20,12 @@ class NodeComposition(threading.Thread):
     leader_id: int
     nodes: list[int]
     messages_count : int
+    skip_discovery: bool
 
-    def __init__ (self, node_id: int):
+    def __init__ (self, node_id: int, skip_discovery: bool):
         super().__init__(daemon=True)
         self.node_id = node_id
+        self.skip_discovery = skip_discovery
         self.is_node_alive = True
         self.leader_id = -1
         self.nodes = []
@@ -31,7 +33,7 @@ class NodeComposition(threading.Thread):
         self.election_lock = threading.Lock()
         self.server_process = None
         self.shutdown_event = threading.Event()
-        self.shutdown_in_progress = False  # Add flag to prevent multiple shutdowns
+        self.shutdown_in_progress = False  # flag to prevent multiple shutdowns
 
         self.app = Flask(__name__)
         self._setup_routes()
@@ -40,10 +42,12 @@ class NodeComposition(threading.Thread):
         """Thread entrypoint: start Flask server"""
         temp_port = PORT + self.node_id
         # Start Flask server for this node
-
+        print(f"node {self.node_id} is booting up")
         while(True):
             if temp_port > 65000:
-                raise Exception("No free port")
+                # exit out
+                print("no available port could be found for node ", self.node_id)
+                return
             try:
                 print("Trying to find port")
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -156,10 +160,12 @@ class NodeComposition(threading.Thread):
 
     def discovery(self):
         """Scan ports to find a thread that is alive"""
+        if self.skip_discovery:
+            return []
         port = self.discover_peers()
         if port == -1:
             return []
-        
+        print("port was not -1")
         # Try multiple times to find a responsive node
         max_attempts = 3
         for attempt in range(max_attempts):
@@ -181,29 +187,27 @@ class NodeComposition(threading.Thread):
 
     def check_port(self, port):
         """Quick check if a Flask app is running on this port"""
-        #try:
-        #    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #    sock.settimeout(0.1)  # 100ms timeout
-        #    result = sock.connect_ex(('localhost', port))
-        #    sock.close()
-        #    return port if result == 0 else None
-        #except socket.error:
-        #    return None
-        
         try:
-            import requests
-            if port > 0:
-                response = requests.get(f'http://localhost:{port}/ping', timeout=0.2)
-                return port if response.status_code == 200 else None
-        except:
-            return None
+           sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+           sock.settimeout(0.1)  # 100ms timeout
+           result = sock.connect_ex(('localhost', port))
+           sock.close()
+           return port if result == 0 else None
+        except socket.error:
+           return None
+
 
     def discover_peers(self, port_range=(50000, 65000)):
         """Parallel port scan"""
+        print("discovery for node", self.node_id)
         for port in range(*port_range):
+            print("checking port: ", port)
             prt = self.check_port(port)
             if prt and not prt == self.node_id:
+                print("self.node is", self.node_id)
+                print("found port ", prt, "wchic is up")
                 return prt
+        print("could not find any peers")
         return -1
 
     def new_node(self, node_id):
