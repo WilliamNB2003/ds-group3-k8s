@@ -19,7 +19,6 @@ class System:
             my_node = self.node_class(node_id + 1)
             my_node.start_node()
             self.nodes.append(my_node)
-            # time.sleep(0.1)
         self.shutdown_in_progress = False  # Add flag to prevent cascading shutdowns
 
     def kill_node(self, node_id: int):

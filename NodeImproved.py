@@ -49,8 +49,6 @@ class Node(NodeComposition):
             if len(self.nodes) > 0:
                 self.nodes.pop()
             self.election()
-            # return
-        # print('Leader is still alive: ', response.status_code)
 
     # ---------------------------------------------------
     # Methods called inside of node
@@ -67,7 +65,6 @@ class Node(NodeComposition):
             self.nodes.remove(self.node_id)
         node_ids_filtered = [nid for nid in node_ids if nid != self.node_id]
         self.nodes = self.nodes + node_ids_filtered
-        # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
         responses = self.send_broadcast('BOOTUP')
         print("responses from bootup: ", responses)
         # Update the leader ID for the booted up node

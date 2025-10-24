@@ -200,8 +200,6 @@ class NodeComposition(threading.Thread):
 
     def discover_peers(self, port_range=(50000, 65000)):
         """Parallel port scan"""
-        # print("port range: ", port_range)
-
         for port in range(*port_range):
             prt = self.check_port(port)
             if prt and not prt == self.node_id:
@@ -224,7 +222,6 @@ class NodeComposition(threading.Thread):
         # For every node, send an http request with msg
         responses = []
         for node in self.nodes:
-            # self.messages_count += 1
             if node == self.node_id:
                 continue
 
@@ -233,7 +230,6 @@ class NodeComposition(threading.Thread):
             message = {"src": self.node_id, "dst": node, "type": msg}
 
             try:
-                # resp = requests.post(url, json=message, timeout=0.5)
                 resp = ''
                 if msg == 'COORDINATOR':
                     # this endpoint retrives
@@ -260,7 +256,6 @@ class NodeComposition(threading.Thread):
             msg (str): message to send
         """
         print("node", self.node_id, " sending to port: ", dst_node_id)
-        # self.messages_count += 1
 
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
         target_port = int(dst_node_id)
@@ -268,7 +263,6 @@ class NodeComposition(threading.Thread):
         print("url: ", url)
         message = {"src": self.node_id, "dst": dst_node_id}
         if self.node_id == dst_node_id:
-            print("fucking idiot")
             return
         
         try:
@@ -282,4 +276,3 @@ class NodeComposition(threading.Thread):
         except requests.exceptions.ConnectionError as e:
             print(f'Error occurred whilst unicasting to node {dst_node_id}, error. {e}')
             return None
-        # except requests.exceptions
