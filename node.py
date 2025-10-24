@@ -9,7 +9,7 @@ class Node(NodeComposition):
     """Node thread, listening when instantiated"""
     messages_lock: threading.Lock
 
-    def __init__ (self, node_id: int, skip_discovery=True):
+    def __init__ (self, node_id: int, skip_discovery=False):
         super().__init__(node_id, skip_discovery=skip_discovery)
         self.messages_lock = threading.Lock()
 
