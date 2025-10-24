@@ -1,8 +1,9 @@
 """
-Composition node class, incompassing all functions not unique to the bully algorithm
+Composition node class, incompassing all functions not unique to the intial/improved bully algorithm
 """
 import threading
 import socket
+import time
 from flask import Flask, request, jsonify
 import requests
 
@@ -27,7 +28,6 @@ class NodeComposition(threading.Thread):
         self.leader_id = -1
         self.nodes = []
         self.messages_count = 0
-        self.messages_lock = threading.Lock()
         self.election_lock = threading.Lock()
         self.has_found_port = False
         self.server_process = None
@@ -75,8 +75,7 @@ class NodeComposition(threading.Thread):
             if not self.is_node_alive:
                 print("node ", self.node_id, " is not alive..")
                 return jsonify({"status": "Not alive"}), 401
-            else:
-                return None
+            return None
 
         @self.app.route('/ping', methods=["GET"])
         def ping_end():
@@ -124,26 +123,22 @@ class NodeComposition(threading.Thread):
             Scan ports to find a thread that is alive
         """
         port = self.discover_peers()
-        # print("The port found in disdovery: ", port, " for node: ", self.node_id)
         # now check that node is alive, else we need discovery again
-        # time.sleep(1)
         resp = self.send_uni_cast(port, "BOOTUP")
-        # print("response from bootuyp: ", resp)
         while not resp or resp.status_code == 404:
+            # do this until you found a living node 
             port = self.discover_peers((port, 65000))
             if port == -1:
                 # then no port could be found
                 return []
+            # else try new port found, check if it's alive
             resp = self.send_uni_cast(port, "BOOTUP")
             if not resp:
-                print("something went wrong in send_uni_cast in discovery")
+                print("something went wrong in send_uni_cast")
                 return []
-            print("response from bootuyp: ", resp, resp.status_code == 404)
-         
-        # print("resp worked, port ", port, " Is alivre!!!!")
+        # The living node should've sent it's known nodes in the body
         data = resp.json()
         node_ids = data['node_ids']
-        # print("got these node ids from other node: ", node_ids)
         return [port] + node_ids
 
     def check_port(self, port):
@@ -171,20 +166,10 @@ class NodeComposition(threading.Thread):
         """
             Whenever a bootup is registered we check if a new node should be appended to the list
         """
-        if node_id not in self.nodes:
+        if not node_id in self.nodes:
             self.nodes.append(node_id)
 
-    def resetMessageCount(self):
-        with self.messages_lock:
-            self.messages_count = 0
 
-    def getMessageCount(self):
-        with self.messages_lock:
-            return self.messages_count
-    
-    def increment_count(self, amount = 1):
-        with self.messages_lock:
-            self.messages_count += amount
 
     def send_broadcast(self, msg: str) -> list[requests.Response]:
         """
@@ -193,7 +178,7 @@ class NodeComposition(threading.Thread):
         # For every node, send an http request with msg
         responses = []
         for node in self.nodes:
-            self.increment_count()
+            # self.messages_count += 1
             if node == self.node_id:
                 continue
 
@@ -205,7 +190,7 @@ class NodeComposition(threading.Thread):
                 # resp = requests.post(url, json=message, timeout=0.5)
                 resp = ''
                 if msg == 'COORDINATOR':
-                    # this endpoint retrives 
+                    # this endpoint retrives
                     message = {"src": self.node_id, "dst": node, 'leader_id': self.leader_id}
                     resp =  requests.put(url, json=message, timeout=0.5)
                 elif msg == 'BOOTUP':
@@ -215,9 +200,8 @@ class NodeComposition(threading.Thread):
                     resp =  requests.get(url, json=message, timeout=0.5)
 
                 responses.append(resp)
-            except requests.exceptions.ConnectionError:
-                print(f'\033[91m[ERROR]\033[0m Error occurred whilst sending broadcast to node {node}')
-            
+            except requests.exceptions.ConnectionError as e:
+                print(f'Error occurred whilst sending broadcast to node {node}, error was: {e}')
                 continue
             # except Co
         return responses
@@ -229,8 +213,8 @@ class NodeComposition(threading.Thread):
             node_id (int): node's index
             msg (str): message to send
         """
-        self.increment_count()
-        print("sending to port: ", dst_node_id)
+        print("node", self.node_id, " sending to port: ", dst_node_id)
+        # self.messages_count += 1
 
         assert msg_type in message_identifier, 'message type should be in message_identifiers'
         target_port = int(dst_node_id)
@@ -249,7 +233,7 @@ class NodeComposition(threading.Thread):
             else:
                 return requests.get(url, json=message, timeout=0.5)
 
-        except requests.exceptions.ConnectionError:
-            print(f'\033[91m[ERROR]\033[0m Error occurred whilst unicasting to node {dst_node_id}')
+        except requests.exceptions.ConnectionError as e:
+            print(f'Error occurred whilst unicasting to node {dst_node_id}, error. {e}')
             return None
         # except requests.exceptions

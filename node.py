@@ -7,14 +7,15 @@ from nodeComposition import NodeComposition
 
 class Node(NodeComposition):
     """Node thread, listening when instantiated"""
+    messages_lock: threading.Lock
 
     def __init__ (self, node_id: int):
         super().__init__(node_id, daemon=True)
+        self.messages_lock = threading.Lock()
 
     def start_node(self):
         """Start Flask server in thread, then bootup after it's ready"""
         self.start()
-        # time.sleep(0.1)
         self.bootup()
 
     def _setup_routes(self):
@@ -23,13 +24,17 @@ class Node(NodeComposition):
         
         @self.app.route('/election', methods=["GET"])
         def election_end():
-            if self.election_lock.acquire(blocking=False):
-                threading.Thread(target=self.election, daemon=True).start()
+            self.increment_messages()
+            threading.Thread(target=self.election, daemon=True).start()
             return jsonify({"status": "OK"}), 200
 
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
+    def resetMessageCount(self):
+        with self.messages_lock:
+            self.messages_count = 0
+    
     def revive_node(self):
         """
             Event that is controlled by the team to revive a node
@@ -41,15 +46,22 @@ class Node(NodeComposition):
         """
             Check if leader is alive
         """
-        # time.sleep(0.2)
         response = self.send_uni_cast(self.leader_id, "PING")
         if response is None or not (response.status_code == 200):
-            # self.nodes.pop()
-            self.election()
+            # if no response, start election - let election() handle locking
+            threading.Thread(target=self.election, daemon=True).start()
 
     # ---------------------------------------------------
     # Methods called inside of node
     # ---------------------------------------------------
+    def increment_messages(self, amount = 1):
+        with self.messages_lock:
+            self.messages_count += amount
+    
+    def get_messages(self):
+        with self.messages_lock:
+            return self.messages_count
+
     def bootup(self):
         """
             Broadcasts to all other nodes that this node exists, so they update their table
@@ -81,26 +93,36 @@ class Node(NodeComposition):
         if not self.election_lock.acquire(blocking=False):
             print(f"Node {self.node_id}: Election already in progress, skipping")
             return
-            
+        print("starting election for node", self.node_id)
         try:
             # Collect the ID's higher than my own:
-            election_candidates = [node for node in self.nodes if (node > self.node_id)]
-            print(f"Node {self.node_id} send election to {len(election_candidates)} node")
+            election_candidates = [node for node in self.nodes if node > self.node_id]
+            print(f"Node {self.node_id} will send elections to {len(election_candidates)} node")
             # Check if there are no candidates, elect self as leader if no candidates
             if len(election_candidates) == 0:
                 self.leader_id = self.node_id
                 self.send_broadcast('COORDINATOR')
+                # send broadcasts sends a message for each node in here
+                self.increment_messages(len(self.nodes))
                 return
 
             # If there are candidates call election on them
+            ok_recieved = False
             for candidate in election_candidates:
                 response = self.send_uni_cast(candidate, 'ELECTION')
-                # If there is just 1 response, then don't do anything
+                self.increment_messages()
                 if (response is not None and response.status_code == 200):
-                    return
+                    ok_recieved = True
+            # we should send all messages out before terminating
+            if ok_recieved:
+                return
 
             # If no 'ok' from higher candidate, you are then leader
             self.leader_id = self.node_id
             self.send_broadcast('COORDINATOR')
+            # send broadcasts sends a message for each node in here
+            self.increment_messages(len(self.nodes))
+
         finally:
             self.election_lock.release()
+

@@ -24,11 +24,14 @@ class Node(NodeComposition):
         
         @self.app.route('/election', methods=["GET"])
         def election_end():
+            self.messages_count += 1
             return jsonify({"status": "OK"}), 200
 
     # ---------------------------------------------------
     #  Methods called outside of node
     # ---------------------------------------------------
+    def resetMessageCount(self):
+        self.messages_count = 0
 
     def revive_node(self):
         """
@@ -58,7 +61,8 @@ class Node(NodeComposition):
         """
         print("discovery: node id: ", self.node_id)
         node_ids = self.discovery()
-        self.nodes = self.nodes + node_ids
+        node_ids_filtered = [nid for nid in node_ids if nid != self.node_id]
+        self.nodes = self.nodes + node_ids_filtered
         # print("-------------- Node: ", self.node_id, " is trying to bootup... --------------")
         responses = self.send_broadcast('BOOTUP')
         print("responses from bootup: ", responses)
@@ -92,6 +96,7 @@ class Node(NodeComposition):
         highest_id = -1
         for candidate in election_candidates:
             response = self.send_uni_cast(candidate, 'ELECTION')
+            self.messages_count += 1
             if (response is not None and response.status_code == 200):
                 if highest_id < candidate:
                     highest_id = candidate
