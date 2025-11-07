@@ -13,7 +13,7 @@ PORT = 50000
 
 message_identifier = ['COORDINATOR', 'BOOTUP', 'ELECTION', 'PING']
 
-class NodeComposition(threading.Thread):
+class NodeComposition():
     """Node thread, listening when instantiated"""
     node_id: int
     is_node_alive: bool # Thread class has inbuilt Thread.is_alive()
@@ -23,7 +23,7 @@ class NodeComposition(threading.Thread):
     skip_discovery: bool
 
     def __init__ (self, node_id: int, skip_discovery: bool):
-        super().__init__(daemon=True)
+        # super().__init__(daemon=True)
         self.node_id = node_id
         self.skip_discovery = skip_discovery
         self.is_node_alive = True
@@ -124,7 +124,6 @@ class NodeComposition(threading.Thread):
             # Use a more graceful shutdown approach
             # Instead of killing the process, use threading to shutdown
             def delayed_shutdown():
-                import time
                 time.sleep(0.1)  # Small delay to let response be sent
                 func = request.environ.get('werkzeug.server.shutdown')
                 if func is not None:
@@ -135,7 +134,6 @@ class NodeComposition(threading.Thread):
                     pass
             
             # Start shutdown in a separate thread
-            import threading
             shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
             shutdown_thread.start()
             
