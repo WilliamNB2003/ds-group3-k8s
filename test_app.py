@@ -38,7 +38,7 @@ async def test_receive_election_starts_election(mock_election, mock_create_task,
     assert resp.status == 200
     
     # Check that the global flag was set to True
-    assert app.ELECTION_IN_PROCESS == True
+    assert app.ELECTION_IN_PROCESS is True
     
     # Check that leader_election() was scheduled as a task
     # It checks that create_task was called with the result of leader_election() coroutine
@@ -58,7 +58,7 @@ async def test_receive_election_skips_if_election_in_process(mock_create_task, c
     
     # 3. Assert: Check the results
     assert resp.status == 200
-    assert app.ELECTION_IN_PROCESS == True # Flag remains True
+    assert app.ELECTION_IN_PROCESS is True # Flag remains True
     
     # Check that the task was NOT created
     mock_create_task.assert_not_called()
@@ -79,11 +79,11 @@ async def test_leader_election_becomes_leader(mock_unicast, mock_broadcast):
     await app.leader_election()
     
     # 3. Assert: Check if it declared itself leader and broadcasted
-    assert app.LEADER['id'] == 100
-    assert app.LEADER['url'] == '10.0.0.100'
+    assert app.leader['id'] == 100
+    assert app.leader['url'] == '10.0.0.100'
     mock_broadcast.assert_called_once_with('coordinator')
     mock_unicast.assert_not_called()
-    assert app.ELECTION_IN_PROCESS == False # Must reset the flag
+    assert app.ELECTION_IN_PROCESS is False # Must reset the flag
     
 @pytest.mark.asyncio
 @mock.patch('app.send_broadcast', new_callable=mock.AsyncMock)
@@ -106,4 +106,4 @@ async def test_leader_election_higher_id_responds_ok(mock_unicast, mock_broadcas
     # 3. Assert: Check if it sent election messages and did NOT become leader
     mock_unicast.assert_called_once() # Should only call 60
     mock_broadcast.assert_not_called() # Should not broadcast coordinator
-    assert app.ELECTION_IN_PROCESS == False # Must reset the flag
+    assert app.ELECTION_IN_PROCESS is False # Must reset the flag

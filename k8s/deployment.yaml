@@ -6,7 +6,7 @@ spec:
   selector:
     matchLabels:
       app: bully-app
-  replicas: 2
+  replicas: 4
   template:
     metadata:
       name: bully-app
@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: bully-container
-          image: bully-app
+          image: ds-group3:v0.0.4
           imagePullPolicy: Never
           env:
             - name: WEB_PORT
@@ -25,6 +25,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
           ports:
             - containerPort: 8080
               name: http
