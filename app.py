@@ -10,13 +10,14 @@ import json
 import hashlib
 import cookies
 from kubernetes import client, config
+from aiohttp import ClientSession, ClientTimeout, ClientResponse
+from asyncio import create_task
 
 config.load_incluster_config()
 v1 = client.CoreV1Api()
 
 pod_name = os.environ['POD_NAME']
 namespace = os.environ.get('NAMESPACE', 'default')
-
 
 POD_IP = str(os.environ['POD_IP'])
 WEB_PORT = int(os.environ['WEB_PORT'])
@@ -37,27 +38,32 @@ async def send_coordinator():
     tasks = []
     s = Session()
     data = json.dumps({'id': POD_ID, 'url': POD_IP})
-    for pod_ip in IP_LIST:
-        endpoint = '/recieve_election'
-        url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
-        task = s.post(url=url, data=data, timeout = 2)
-        tasks.append(task)
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
-    for resp in responses:
-        if isinstance(resp, Exception):
-            print(f"Broadcast error: {resp}")
+    async with ClientSession(timeout=ClientTimeout(total=2)) as session:
+
+        for pod_ip in IP_LIST:
+            endpoint = '/recieve_election'
+            url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
+            task = create_task(session.post(url=url, json=data))
+            tasks.append(task)
+
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        for resp in responses:
+            if isinstance(resp, Exception):
+                print(f"Broadcast error: {resp}")
 
 async def send_election():
     tasks = []
     s = Session()
     ip_list = [ip for ip in IP_LIST if IP_TO_ID[ip] > POD_ID]
-    for pod_ip in ip_list:
-        endpoint = '/recieve_election'
-        url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
-        task = s.post(url=url, timeout = 2)
-        tasks.append(task)
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
-    return responses
+    async with ClientSession(timeout=ClientTimeout(total=2)) as session:
+        for pod_ip in ip_list:
+            endpoint = '/recieve_election'
+            url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
+            task = create_task(session.post(url=url))
+            tasks.append(task)
+
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        return responses
 
 async def heartbeat():
     global IP_LIST, IP_TO_ID, ELECTION_IN_PROCESS, leader
@@ -87,24 +93,32 @@ async def heartbeat():
         # Get ID's of other pods by sending a GET request to them
         await asyncio.sleep(random.randint(1, 5))
         ip_to_id = {}
-        for pod_ip in ip_list:
-            try:
+        async with ClientSession(timeout=ClientTimeout(total=2)) as session:
+            tasks = []
+            for pod_ip in ip_list:
                 endpoint = '/pod_id'
                 url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
-                response = requests.get(url, timeout=2)
-                crnt_pod_id = response.json()
-                # check for leader
-                if crnt_pod_id == current_leader["id"]:
-                    leader_found = True
-                if crnt_pod_id > current_leader["id"]:
-                    # a new leader has been found?
-                    call_election = True
-                    
-                # else we don't care
-                ip_to_id[str(pod_ip)] = int(crnt_pod_id)
-            # If a pod is dead
-            except requests.exceptions.RequestException as e:
-                print(f"Error communicating with pod {pod_ip}: {e}")
+                task = create_task(session.post(url=url))
+                tasks.append(task)
+            
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            for id, response in enumerate(responses):
+                pod_ip = ip_list[id]
+                try:
+                    if isinstance(response, ClientResponse) and response.status == 200:
+                        crnt_pod_id = await response.json()
+                        # check for leader
+                        if crnt_pod_id == current_leader["id"]:
+                            leader_found = True
+                        if crnt_pod_id > current_leader["id"]:
+                            # a new leader has been found?
+                            call_election = True
+                            
+                        # else we don't care
+                        ip_to_id[str(pod_ip)] = int(crnt_pod_id)
+                # If a pod is dead
+                except requests.exceptions.RequestException as e:
+                    print(f"Error communicating with pod {pod_ip}: {e}")
 
         
         # Other pods in network
@@ -142,10 +156,13 @@ async def leader_election():
 
     # If there are candidates call election on them
     ok_recieved = False
-    responses = send_election()
+    responses = await send_election()
     for response in responses:
-        if (response is not None and response.cr_code == 200):
+        if isinstance(response, ClientResponse) and response.status == 200:
             ok_recieved = True
+        else:
+            print(f"Broadcast error: {response}")
+
     # we should send all messages out before terminating
     if ok_recieved:
         ELECTION_IN_PROCESS = False
@@ -172,10 +189,7 @@ async def receive_answer(request):
 #POST /receive_election
 async def receive_election(request):
     # start election in background task
-    global ELECTION_IN_PROCESS
-    if not ELECTION_IN_PROCESS:
-        ELECTION_IN_PROCESS = True
-        asyncio.create_task(leader_election())
+    asyncio.create_task(leader_election())
     return web.json_response('OK')
 
 #POST /receive_coordinator
