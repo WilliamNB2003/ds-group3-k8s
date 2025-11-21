@@ -8,10 +8,12 @@ import requests
 from requests.sessions import Session
 import json
 import hashlib
-import cookies
+from cookies import cookiesList
+from frontend import frontpage_html
 from kubernetes import client, config
 from aiohttp import ClientSession, ClientTimeout, ClientResponse
 from asyncio import create_task
+import pathlib
 
 config.load_incluster_config()
 v1 = client.CoreV1Api()
@@ -29,6 +31,9 @@ IP_LIST = {}
 IP_TO_ID = {}
 ELECTION_IN_PROCESS: bool = False
 
+# between election or improved
+ELECTION_TYPE = os.getenv('ELECTION_TYPE', 'election')
+print(f"Starting server with ELECTION_TYPE: {ELECTION_TYPE}")
 
 async def setup_k8s():
     # If you need to do setup of Kubernetes, i.e. if using Kubernetes Python client
@@ -36,14 +41,13 @@ async def setup_k8s():
 
 async def send_coordinator():
     tasks = []
-    s = Session()
-    data = json.dumps({'id': POD_ID, 'url': POD_IP})
+    payload = {'id': POD_ID, 'url': POD_IP}
     async with ClientSession(timeout=ClientTimeout(total=2)) as session:
 
         for pod_ip in IP_LIST:
-            endpoint = '/recieve_election'
+            endpoint = '/receive_coordinator'
             url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
-            task = create_task(session.post(url=url, json=data))
+            task = create_task(session.post(url=url, json=payload))
             tasks.append(task)
 
         responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -53,11 +57,10 @@ async def send_coordinator():
 
 async def send_election():
     tasks = []
-    s = Session()
     ip_list = [ip for ip in IP_LIST if IP_TO_ID[ip] > POD_ID]
     async with ClientSession(timeout=ClientTimeout(total=2)) as session:
         for pod_ip in ip_list:
-            endpoint = '/recieve_election'
+            endpoint = '/receive_election'
             url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
             task = create_task(session.post(url=url))
             tasks.append(task)
@@ -87,8 +90,8 @@ async def heartbeat():
 
         # current leader
         current_leader = leader # copy or smth
-        leader_found = False
-        call_election = True
+        leader_found = leader['id'] == POD_ID
+        call_election = False
         
         # Get ID's of other pods by sending a GET request to them
         await asyncio.sleep(random.randint(1, 5))
@@ -98,7 +101,7 @@ async def heartbeat():
             for pod_ip in ip_list:
                 endpoint = '/pod_id'
                 url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
-                task = create_task(session.post(url=url))
+                task = create_task(session.get(url=url))
                 tasks.append(task)
             
             responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -117,7 +120,7 @@ async def heartbeat():
                         # else we don't care
                         ip_to_id[str(pod_ip)] = int(crnt_pod_id)
                 # If a pod is dead
-                except requests.exceptions.RequestException as e:
+                except aiohttp.ClientError as e:
                     print(f"Error communicating with pod {pod_ip}: {e}")
 
         
@@ -151,7 +154,7 @@ async def leader_election():
         leader['url'] = POD_IP
         await send_coordinator()
         ELECTION_IN_PROCESS = False
-        label_self_as_leader()
+        await label_self_as_leader()
         return
 
     # If there are candidates call election on them
@@ -166,7 +169,7 @@ async def leader_election():
     # we should send all messages out before terminating
     if ok_recieved:
         ELECTION_IN_PROCESS = False
-        remove_leader_label()
+        await remove_leader_label()
         return
 
     # If no 'ok' from higher candidate, you are then leader
@@ -177,6 +180,68 @@ async def leader_election():
     ELECTION_IN_PROCESS = False
     return
 
+async def improved_leader_election():
+    """
+        Host an election, whenever a leader is either down or there is a new candidate
+    """
+    global ELECTION_IN_PROCESS, leader
+    # Try to acquire the lock, if already held by another election, skip
+    print("starting election for node", POD_ID)
+    if ELECTION_IN_PROCESS:
+        print("[LEADER_ELECTION] Already in progress, skipping ...")
+        return
+    ELECTION_IN_PROCESS = True
+    # Collect the ID's higher than my own:
+    election_candidates = [node_ID for node_ID in IP_TO_ID.values() if node_ID > POD_ID]
+    print(f"Node {POD_ID} will send elections to {len(election_candidates)} nodes")
+    # Check if there are no candidates, elect as leader if no candidates
+    if len(election_candidates) == 0:
+        leader['id'] = POD_ID
+        leader['url'] = POD_IP
+        await send_coordinator()
+        ELECTION_IN_PROCESS = False
+        await label_self_as_leader()
+        return
+
+    # If there are candidates call election on them
+    ok_recieved = False
+    highest_id = -1
+    responses = await send_election()
+    for response in responses:
+        if isinstance(response, ClientResponse) and response.status == 200:
+            ok_recieved = True
+            highest_id = max(highest_id, )
+        else:
+            print(f"Broadcast error: {response}")
+
+    # we should send all messages out before terminating
+    if ok_recieved:
+        ELECTION_IN_PROCESS = False
+        await remove_leader_label()
+        return
+
+    # If no 'ok' from higher candidate, you are then leader
+    leader['id'] = POD_ID
+    leader['url'] = POD_IP
+    # send broadcasts sends a message for each node in here
+    await send_coordinator()
+    ELECTION_IN_PROCESS = False
+    return
+
+async def label_self_as_leader():
+    # The patch to apply
+    body = { "metadata": { "labels": { "role": "leader" } } }
+    print(f"Labeled pod {pod_name} as leader with id {POD_ID}")
+    # Patch the pod
+    await asyncio.to_thread(v1.patch_namespaced_pod, name=pod_name, namespace=namespace, body=body)
+
+async def remove_leader_label():
+    # Remove label by setting it to None
+    body = {"metadata": {"labels": {"role": ""} } }
+    print(f"Removed leader label from pod {pod_name}")
+
+    await asyncio.to_thread(v1.patch_namespaced_pod, name=pod_name, namespace=namespace, body=body)
+    
 
 #GET /pod_id
 async def pod_id(request):
@@ -198,39 +263,17 @@ async def receive_coordinator(request):
         data = await request.json()
         leader['id'] = data.get('id', POD_ID)
         leader['url'] = data.get('url', POD_IP)
-        remove_leader_label()
+        await remove_leader_label()
         return web.json_response('OK')
     except Exception as e:
         print(f"Error in recieve_coordinator: {e}")
         return web.json_response('Error', status=500)
-    
-async def get_cookie():
-    return web.json_response(random.choice(cookies.cookiesList))
-
-def label_self_as_leader():
-    # The patch to apply
-    body = {
-        "metadata": {
-            "labels": {
-                "role": "leader"
-            }
-        }
-    }
-    # Patch the pod
-    v1.patch_namespaced_pod(name=pod_name, namespace=namespace, body=body)
-    print(f"Labeled pod {pod_name} as leader")
-
-def remove_leader_label():
-    # Remove label by setting it to None
-    body = {
-        "metadata": {
-            "labels": {
-                "role": None
-            }
-        }
-    }
-    v1.patch_namespaced_pod(name=pod_name, namespace=namespace, body=body)
-    print(f"Removed leader label from pod {pod_name}")
+        
+async def get_cookie(request):
+    cookie = random.choice(cookiesList)
+    cookie += "<div><p>pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"], "</p></div>")
+    return web.json_response(cookie)
+        
 
 async def background_tasks(app):
     task = asyncio.create_task(heartbeat())
@@ -238,8 +281,16 @@ async def background_tasks(app):
     task.cancel()
     await task
 
+async def homepage(request):
+    return web.Response(text=frontpage_html, content_type='text/html')
+
+static_dir = pathlib.Path(__file__).parent / 'static'
+
 if __name__ == "__main__":
     app = web.Application()
+    app.router.add_get('/', homepage)
+    app.router.add_static('/static/', path=str(static_dir), name='static')
+
     app.router.add_get('/pod_id', pod_id)
     app.router.add_get('/get_cookie', get_cookie)
     app.router.add_post('/receive_answer', receive_answer)

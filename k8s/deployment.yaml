@@ -14,10 +14,14 @@ spec:
         name: bully-app
         app: bully-app
     spec:
+      # serviceAccountName: bully-app-sa
       containers:
         - name: bully-container
-          image: ds-group3:v0.0.5
+          image: ds-group3:v0.0.12
           imagePullPolicy: Never
+          # envFrom:
+          #   - ConfigMapRef:
+          #     name: app-config
           env:
             - name: WEB_PORT
               value: "8080"
@@ -29,6 +33,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # - name: ELECTION_TYPE
+            #   valueFrom:
+            #     configMapKeyRef:
+            #       name: app-config
+            #       key: ELECTION_TYPE
 
           ports:
             - containerPort: 8080

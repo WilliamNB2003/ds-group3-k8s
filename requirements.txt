@@ -10,3 +10,4 @@ aiohappyeyeballs==2.6.1
 requests==2.32.5
 requests-toolbelt==1.0.0
 kubernetes==34.1.0
+pathlib==1.0.1
