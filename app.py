@@ -210,7 +210,7 @@ async def improved_leader_election():
     for response in responses:
         if isinstance(response, ClientResponse) and response.status == 200:
             ok_recieved = True
-            highest_id = max(highest_id, )
+            # highest_id = max(highest_id, )
         else:
             print(f"Broadcast error: {response}")
 
