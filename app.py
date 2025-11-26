@@ -237,7 +237,7 @@ async def label_self_as_leader():
 
 async def remove_leader_label():
     # Remove label by setting it to None
-    body = {"metadata": {"labels": {"role": ""} } }
+    body = {"metadata": {"labels": {"role": None}}}
     print(f"Removed leader label from pod {pod_name}")
 
     await asyncio.to_thread(v1.patch_namespaced_pod, name=pod_name, namespace=namespace, body=body)
@@ -271,7 +271,7 @@ async def receive_coordinator(request):
         
 async def get_cookie(request):
     cookie = random.choice(cookiesList)
-    cookie += "<div><p>pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"], "</p></div>")
+    cookie += "<div><p>pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"]), "</p></div>"
     return web.json_response(cookie)
         
 

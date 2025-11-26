@@ -14,7 +14,7 @@ spec:
         name: bully-app
         app: bully-app
     spec:
-      # serviceAccountName: bully-app-sa
+      serviceAccountName: bully-app-sa
       containers:
         - name: bully-container
           image: ds-group3:v0.0.12
@@ -43,3 +43,10 @@ spec:
             - containerPort: 8080
               name: http
               protocol: TCP
+
+          readinessProbe:
+            httpGet:
+              path: /pod_id     # K8s will try to GET this path
+              port: 8080        # On this port
+            initialDelaySeconds: 5    # Wait 5s before trying (give Python time to boot)
+            periodSeconds: 5         # Check every 5s after that
