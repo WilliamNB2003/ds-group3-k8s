@@ -4,6 +4,7 @@ metadata:
   name: bully-service
 spec:
   clusterIP: None
+  publishNotReadyAddresses: true
   selector:
     app: bully-app
   ports:

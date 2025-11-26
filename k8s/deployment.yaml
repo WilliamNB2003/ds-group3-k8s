@@ -17,7 +17,7 @@ spec:
       serviceAccountName: bully-app-sa
       containers:
         - name: bully-container
-          image: ds-group3:v0.0.12
+          image: bully-app:latest
           imagePullPolicy: Never
           # envFrom:
           #   - ConfigMapRef:

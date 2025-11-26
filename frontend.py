@@ -85,7 +85,7 @@ frontpage_html = '''<!DOCTYPE html>
     <div class="container">
         <h1>Fortune Cookie</h1>
         
-        <img src="/static/yoda.jpg" alt="Yoda holding a fortune cookie" class="cookie">
+        <img src="/static/yoda.png" alt="Yoda holding a fortune cookie" class="cookie">
         
         <div id="fortune">Click the button, you must!</div>
         <button onclick="getCookie()">Get Fortune</button>

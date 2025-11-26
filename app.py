@@ -78,7 +78,7 @@ async def heartbeat():
         # Get all pods doing bully
         ip_list = []
         print("Making a DNS lookup to service")
-        response = socket.getaddrinfo("bully-service",0,0,0,0)
+        response = await asyncio.to_thread(socket.getaddrinfo, "bully-service", 0, 0, 0, 0)
         print("Get response from DNS")
         for result in response:
             ip_list.append(result[-1][0])
@@ -271,7 +271,7 @@ async def receive_coordinator(request):
         
 async def get_cookie(request):
     cookie = random.choice(cookiesList)
-    cookie += "<div><p>pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"]), "</p></div>"
+    cookie += "pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"])
     return web.json_response(cookie)
         
 
@@ -284,7 +284,7 @@ async def background_tasks(app):
 async def homepage(request):
     return web.Response(text=frontpage_html, content_type='text/html')
 
-static_dir = pathlib.Path(__file__).parent / 'static'
+static_dir = pathlib.Path(__file__).resolve().parent / 'static'
 
 if __name__ == "__main__":
     app = web.Application()
