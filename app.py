@@ -30,11 +30,16 @@ leader = {'id': -1, 'url': ''}
 IP_LIST = {}
 IP_TO_ID = {}
 ELECTION_IN_PROCESS: bool = False
+IS_READY = True
 
-# between election or improved
-ELECTION_TYPE = os.getenv('ELECTION_TYPE', 'election')
-print(f"Starting server with ELECTION_TYPE: {ELECTION_TYPE}")
-
+# Add this new endpoint
+async def readiness_check(request):
+    """Return 200 only if ready to serve traffic"""
+    if IS_READY:
+        return web.Response(status=200, text="OK")
+    else:
+        return web.Response(status=503, text="Not Ready")
+    
 async def setup_k8s():
     # If you need to do setup of Kubernetes, i.e. if using Kubernetes Python client
 	print("K8S setup completed")
@@ -72,7 +77,7 @@ async def heartbeat():
     global IP_LIST, IP_TO_ID, ELECTION_IN_PROCESS, leader
     while True:
        
-        await asyncio.sleep(5) # wait for everything to be up
+        await asyncio.sleep(1) # wait for everything to be up
         print("Starting heartbeat")
         
         # Get all pods doing bully
@@ -94,9 +99,9 @@ async def heartbeat():
         call_election = False
         
         # Get ID's of other pods by sending a GET request to them
-        await asyncio.sleep(random.randint(1, 5))
+        await asyncio.sleep(random.uniform(0.1, 0.5))
         ip_to_id = {}
-        async with ClientSession(timeout=ClientTimeout(total=2)) as session:
+        async with ClientSession(timeout=ClientTimeout(total=0.5)) as session:
             tasks = []
             for pod_ip in ip_list:
                 endpoint = '/pod_id'
@@ -123,22 +128,25 @@ async def heartbeat():
                 except aiohttp.ClientError as e:
                     print(f"Error communicating with pod {pod_ip}: {e}")
 
-        
         # Other pods in network
         IP_LIST = ip_list
         IP_TO_ID = ip_to_id
         # after requesting every found pod
         if not leader_found or call_election:
-            await leader_election()
+            await general_election()
         
         print("="*50)
         print(IP_TO_ID)
+        print("Leader ID: " + str(leader["id"]))
+
+        if leader['id'] != -1 and leader['id'] != POD_ID:
+            await remove_leader_label()
 
 async def leader_election():
     """
         Host an election, whenever a leader is either down or there is a new candidate
     """
-    global ELECTION_IN_PROCESS, leader
+    global ELECTION_IN_PROCESS, leader, ELECTION_TYPE
     # Try to acquire the lock, if already held by another election, skip
     print("starting election for node", POD_ID)
     if ELECTION_IN_PROCESS:
@@ -169,7 +177,14 @@ async def leader_election():
     # we should send all messages out before terminating
     if ok_recieved:
         ELECTION_IN_PROCESS = False
+        
+        was_leader = (leader['id'] == POD_ID)
         await remove_leader_label()
+        
+        if was_leader:
+            print(f"Stepping down: Found higher candidate. Restarting to break sticky connections.")
+            asyncio.get_event_loop().call_later(1, lambda: os._exit(0))
+            
         return
 
     # If no 'ok' from higher candidate, you are then leader
@@ -241,7 +256,18 @@ async def remove_leader_label():
     print(f"Removed leader label from pod {pod_name}")
 
     await asyncio.to_thread(v1.patch_namespaced_pod, name=pod_name, namespace=namespace, body=body)
-    
+
+async def general_election():
+    # start election in background task
+    ELECTION_TYPE = os.getenv('ELECTION_TYPE')
+    print(f"Server uses ELECTION_TYPE: {ELECTION_TYPE}")
+    if (ELECTION_TYPE == 'normal'):
+        asyncio.create_task(leader_election())
+    elif (ELECTION_TYPE == 'improved'):
+        asyncio.create_task(improved_leader_election())
+    else:
+        print("Not recognized ELECTION_TYPE, defaulting to normal")
+        asyncio.create_task(leader_election())
 
 #GET /pod_id
 async def pod_id(request):
@@ -253,25 +279,34 @@ async def receive_answer(request):
 
 #POST /receive_election
 async def receive_election(request):
-    # start election in background task
-    asyncio.create_task(leader_election())
+    await general_election()
     return web.json_response('OK')
 
 #POST /receive_coordinator
 async def receive_coordinator(request):
+    global IS_READY
     try:
         data = await request.json()
+        
+        was_leader = (leader['id'] == POD_ID)
+        
         leader['id'] = data.get('id', POD_ID)
         leader['url'] = data.get('url', POD_IP)
         await remove_leader_label()
+        
+        if was_leader and leader['id'] != POD_ID:
+            print(f"Stepping down: Marking as not ready immediately")
+            IS_READY = False  # Fail readiness checks immediately
+            asyncio.get_event_loop().call_later(1, lambda: os._exit(0))
+
         return web.json_response('OK')
     except Exception as e:
         print(f"Error in recieve_coordinator: {e}")
         return web.json_response('Error', status=500)
         
-async def get_cookie(request):
+async def get_cookie(request):    
     cookie = random.choice(cookiesList)
-    cookie += "pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"])
+    cookie += " Pod ID: " + str(POD_ID) + " and leader is: " + str(leader["id"])
     return web.json_response(cookie)
         
 
@@ -292,6 +327,7 @@ if __name__ == "__main__":
     app.router.add_static('/static/', path=str(static_dir), name='static')
 
     app.router.add_get('/pod_id', pod_id)
+    app.router.add_get('/readiness', readiness_check)
     app.router.add_get('/get_cookie', get_cookie)
     app.router.add_post('/receive_answer', receive_answer)
     app.router.add_post('/receive_election', receive_election)

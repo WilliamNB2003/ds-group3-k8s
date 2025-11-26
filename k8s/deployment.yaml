@@ -6,7 +6,7 @@ spec:
   selector:
     matchLabels:
       app: bully-app
-  replicas: 4
+  replicas: 3
   template:
     metadata:
       name: bully-app
@@ -14,14 +14,12 @@ spec:
         name: bully-app
         app: bully-app
     spec:
+      terminationGracePeriodSeconds: 0
       serviceAccountName: bully-app-sa
       containers:
         - name: bully-container
           image: bully-app:latest
           imagePullPolicy: Never
-          # envFrom:
-          #   - ConfigMapRef:
-          #     name: app-config
           env:
             - name: WEB_PORT
               value: "8080"
@@ -33,11 +31,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            # - name: ELECTION_TYPE
-            #   valueFrom:
-            #     configMapKeyRef:
-            #       name: app-config
-            #       key: ELECTION_TYPE
+            - name: ELECTION_TYPE
+              value: "normal" #must be either 'normal' or 'improved'
+
 
           ports:
             - containerPort: 8080
@@ -46,7 +42,9 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /pod_id     # K8s will try to GET this path
-              port: 8080        # On this port
-            initialDelaySeconds: 5    # Wait 5s before trying (give Python time to boot)
-            periodSeconds: 5         # Check every 5s after that
+              path: /readiness
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 1
+            successThreshold: 1
