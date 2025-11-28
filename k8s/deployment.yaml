@@ -18,7 +18,7 @@ spec:
       serviceAccountName: bully-app-sa
       containers:
         - name: bully-container
-          image: bully-app:latest
+          image: ds-group3:v0.0.15
           imagePullPolicy: Never
           env:
             - name: WEB_PORT
@@ -33,7 +33,6 @@ spec:
                   fieldPath: metadata.name
             - name: ELECTION_TYPE
               value: "normal" #must be either 'normal' or 'improved'
-
 
           ports:
             - containerPort: 8080
