@@ -44,7 +44,7 @@ async def setup_k8s():
     # If you need to do setup of Kubernetes, i.e. if using Kubernetes Python client
 	print("K8S setup completed")
 
-async def send_coordinator():
+async def send_coordinator(id=POD_ID, url=POD_IP):
     tasks = []
     payload = {'id': POD_ID, 'url': POD_IP}
     async with ClientSession(timeout=ClientTimeout(total=2)) as session:
@@ -60,7 +60,7 @@ async def send_coordinator():
             if isinstance(resp, Exception):
                 print(f"Broadcast error: {resp}")
 
-async def send_election():
+async def send_election(improved=False):
     tasks = []
     ip_list = [ip for ip in IP_LIST if IP_TO_ID[ip] > POD_ID]
     async with ClientSession(timeout=ClientTimeout(total=2)) as session:
@@ -68,10 +68,17 @@ async def send_election():
             endpoint = '/receive_election'
             url = 'http://' + str(pod_ip) + ':' + str(WEB_PORT) + endpoint
             task = create_task(session.post(url=url))
-            tasks.append(task)
+            if (improved):
+                tasks.append((pod_ip, task))
+            else:
+                tasks.append(task)
 
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
-        return responses
+        if (improved):
+            results = await asyncio.gather(*(t for _, t in tasks), return_exceptions=True)
+            return list(zip((ip for ip, _ in tasks), results))
+        else:    
+            responses = await asyncio.gather(*tasks, return_exceptions=True)
+            return responses
 
 async def heartbeat():
     global IP_LIST, IP_TO_ID, ELECTION_IN_PROCESS, leader
@@ -221,25 +228,27 @@ async def improved_leader_election():
     # If there are candidates call election on them
     ok_recieved = False
     highest_id = -1
-    responses = await send_election()
-    for response in responses:
+    responses = await send_election(improved=True)
+    for ip, response in responses:
         if isinstance(response, ClientResponse) and response.status == 200:
             ok_recieved = True
-            # highest_id = max(highest_id, )
+            highest_id = max(highest_id, IP_TO_ID[ip])
         else:
             print(f"Broadcast error: {response}")
 
     # we should send all messages out before terminating
-    if ok_recieved:
-        ELECTION_IN_PROCESS = False
-        await remove_leader_label()
-        return
+    new_leader = -1
 
-    # If no 'ok' from higher candidate, you are then leader
-    leader['id'] = POD_ID
-    leader['url'] = POD_IP
-    # send broadcasts sends a message for each node in here
-    await send_coordinator()
+    if ok_recieved:
+        new_leader = highest_id
+        await remove_leader_label()
+    else:
+        new_leader = POD_ID
+        await label_self_as_leader()
+
+    leader['id'] = new_leader
+    leader['url'] = next((ip for ip, id_ in IP_TO_ID.items() if id_ == new_leader), None)
+    await send_coordinator(id=leader['id'],url=leader['url'])
     ELECTION_IN_PROCESS = False
     return
 
