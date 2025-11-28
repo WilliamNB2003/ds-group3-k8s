@@ -6,7 +6,7 @@ spec:
   selector:
     matchLabels:
       app: bully-app
-  replicas: 7
+  replicas: 5
   template:
     metadata:
       name: bully-app
@@ -32,7 +32,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: ELECTION_TYPE
-              value: "improved" #must be either 'normal' or 'improved'
+              value: "normal" #must be either 'normal' or 'improved'
 
 
           ports:
