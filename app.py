@@ -16,7 +16,15 @@ from asyncio import create_task
 import pathlib
 
 config.load_incluster_config()
-v1 = client.CoreV1Api()
+v1 = None
+
+def init_kubernetes():
+    global v1
+    if v1 is None:
+        config.load_incluster_config()
+        v1 = client.CoreV1Api()
+    return v1
+
 
 pod_name = os.environ['POD_NAME']
 namespace = os.environ.get('NAMESPACE', 'default')
@@ -331,6 +339,7 @@ async def homepage(request):
 static_dir = pathlib.Path(__file__).resolve().parent / 'static'
 
 if __name__ == "__main__":
+    init_kubernetes()
     app = web.Application()
     app.router.add_get('/', homepage)
     app.router.add_static('/static/', path=str(static_dir), name='static')
